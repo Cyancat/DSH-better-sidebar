@@ -450,6 +450,11 @@ interface FileViewerDescriptor {
   /** fetchStrategy='custom' 时的加载函数；v0.12.0+ 第三参 signal 在 viewer
    *  卸载/重匹配时中止（忽略 signal 的 load 也照常工作） */
   load?: (path: string, scope: SessionScope, signal?: AbortSignal) => Promise<unknown>
+  /** 浏览器可直接渲染的 URL：声明后编辑器 header 出现「在浏览器中打开」
+   *  按钮（真实新 Tab，window.open '_blank' noopener）。仅当浏览器能原生
+   *  渲染该类型时声明（内置：html → 带 CSP sandbox 的 /sidebar/html URL）；
+   *  文本/代码/二进制不声明，按钮保持隐藏 */
+  browserUrl?: (scope: SessionScope, path: string) => string
   /** 声明式设置（v0.4.1+）：形状同 TabDescriptor.settings（§4.1 的
    *  toggles/pluginToggles/render；v0.12.0 起 viewer 卡片也有齿轮按钮） */
   settings?: SidebarSettingsDeclaration
@@ -502,6 +507,7 @@ interface FileViewerProps {
 
 > **内置 viewer**（不可重复注册，全部 3 个）：markdown(0, fsRead；内嵌 HTML 支持：DOMPurify 白名单消毒、`<details>` 跨段嵌套、本地媒体 src 重写走 `/sidebar/file`；≥3 标题时浮动目录大纲。实现 `markdown-html.ts` / `MarkdownHtml.tsx` / `md-toc.tsx`，[设计文档](plans/2026-08-24-markdown-html-toc-design.md)) / html(0, fsRead, 沙箱 iframe 预览 + `htmlViewerNoSandbox` / `htmlViewerDefaultUnsafe` 两个宿主没有的逃生门) / code(-100, catch-all, fsRead, **可编辑** CodeMirror + 保存)。
 > code 是兜底 viewer：任何其他 viewer 未认领的文件都会落到 code（CodeMirror 文本编辑）；二进制文件经 head 重匹配找不到 sniffer，落到编辑器的下载面板。外部 viewer 注册同扩展名 + 更高 priority 即可覆盖内置的那三个。
+> html viewer 声明了 `browserUrl`，编辑器 header 会出现「在浏览器中打开」按钮（真实新 Tab：走带 CSP sandbox 的 `/sidebar/html` URL，顶层打开仍处 opaque origin，[设计文档](plans/2026-08-31-open-in-browser-design.md)）。image / pdf 已由宿主 documentpreview 接管（`canOpen` 拒认），不再经过本插件的 viewer 流程，故内置只剩 html 一个声明点。
 >
 > ⚠️ **让给宿主的格式（重要，影响你的 viewer 能不能被调用）**：DSH 0.1.7 的 `ui-sidebar-documentpreview` 自带 code / excel(xlsx,xls,csv,tsv) / office（宿主侧转 PDF）/ pdf / image / html / markdown / text 预览，并带缩放与**按目录自动刷新**——本插件原有的 image / pdf / binary-download 三个 viewer 描述符因此删除。更重要的是**路由**：插件的 `editor` 类型在 `canOpen` 里对下列扩展名一律返回 false（`src/client/native/index.ts` 的 `HOST_OWNED_EXTS`），把地址让给内置 `text` 档，**根本不会进入本插件的 `matchFileViewer`**：
 >
@@ -618,12 +624,14 @@ const url = `/sidebar/archive?${new URLSearchParams({ sessionId, id: build.value
 
 约束与状态码：任务表最多 **4 个并发构建**（超出时 `archive.build` 回 `bad-request`，HTTP 409），完成/失败后保留 **5 分钟**（过期即消失）；`id` 只对**创建它的 session** 可用（其他 session 读是 `forbidden` 403）；`/sidebar/archive` 在构建中回 **409**、构建失败回 **410**（消息即失败原因）、未知/过期/已下载回 **404**。响应头为 `content-type: application/zip` + `content-disposition: attachment; filename="<ASCII 回退>"; filename*=UTF-8''<百分号编码>`（非 latin1 文件名走 RFC 5987，ASCII 档位对旧客户端生效）。上限沿用 `src/zip.ts` 的 `ZIP_MAX_ENTRIES = 10_000` 与 `ZIP_MAX_BYTES = 256 MiB`（未压缩总量）。
 
-媒体/下载字节走 `/sidebar/file` 路由（`?sessionId=&path=&cwd=&download=1`）：
+媒体/下载字节走 `/sidebar/file` 路由（`?sessionId=&path=&cwd=`，可选 `&download=1`）：
 
 ```ts
 // 媒体 URL（图片等直接 <img src>）：/sidebar/file?sessionId=...&path=...
 const url = `/sidebar/file?${new URLSearchParams({ sessionId: scope.sessionId, path })}`
 ```
+
+> **inline 安全契约**：不带 `download=1` 的响应除 `<img>`/iframe 内嵌外还可能被**顶层新 Tab 导航**（viewer 声明的 `browserUrl`、或用户直接粘贴媒体 URL），因此统一携带 `content-security-policy: sandbox allow-scripts allow-downloads; object-src 'none'` + `x-content-type-options: nosniff` + `referrer-policy: no-referrer`——即使工作区 SVG/HTML 被顶层打开也在 opaque origin 中执行，与 GUI 源隔离（与 `/sidebar/html` 同一道纵深防御）。`download=1`（attachment 强制落盘）分支不带这些头。
 
 > 注：内置的 `api.ts` 是 better-sidebar 内部模块，外部插件 **不要** value-import 它（构建纯度门会挡）；按上表模式自己 fetch 即可。所有路由带与 `/api` 相同的 Host 头信任围栏，浏览器同源访问天然通过。
 

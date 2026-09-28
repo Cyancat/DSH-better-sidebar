@@ -215,6 +215,20 @@ describe('built-in file viewer registrations', () => {
     }
   })
 
+  it('only the html viewer declares a browserUrl (open-in-browser); markdown/code do not', () => {
+    const { service } = setup()
+    const scope = { sessionId: 's1', cwd: '/tmp' }
+    const byId = (id: string) => service.getFileViewers().find(v => v.id === id)
+    // The sandboxed html route is the only browser-renderable builtin URL —
+    // image/pdf previews belong to the host's document preview now (the
+    // plugin's canOpen yields those extensions), so no builtin declares a
+    // media-route browserUrl anymore.
+    expect(byId('html')?.browserUrl?.(scope, '/tmp/a.html')).toBe('/sidebar/html/s1/tmp/a.html')
+    // The browser cannot meaningfully render these — the button stays hidden.
+    expect(byId('markdown')?.browserUrl).toBeUndefined()
+    expect(byId('code')?.browserUrl).toBeUndefined()
+  })
+
   it('the yielded viewer ids stay registrable by external plugins (public contract)', () => {
     const { service } = setup()
     // Dropping the built-in descriptors must not freeze the ids: the
