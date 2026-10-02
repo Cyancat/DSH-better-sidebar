@@ -87,3 +87,24 @@ export interface FileViewerDescriptor {
 ## 分支与流程
 
 `feat/preview-download` 已被 reset 至 main；本特性改用 `feat/open-in-browser` 分支 + PR（AGENTS §1）。
+
+---
+
+## 追加：点击后自动关闭侧边栏标签页（2026-08-31）
+
+**行为**：「在浏览器中打开」把文件交接给浏览器后，侧边栏里该文件的标签页自动关闭（`ctx.betterSidebar.closeTab(tab.id, scope)`）——浏览器已接管，侧边栏不留冗余 tab。
+
+**草稿守卫**：html viewer 可编辑（TextEditor），有未保存草稿时**先确认再动作**（`window.confirm(t('openBrowserCloseConfirm'))`，沿用 refreshFile 的 confirm 惯例）：取消则既不开浏览器也不关 tab；image/pdf viewer 无编辑态，直接交接。新增 i18n key `openBrowserCloseConfirm`（20 词典已补齐，locales.spec key-set 门禁守护）。
+
+**测试**：`tests/editor-host.spec.tsx`——点击后 tab 从 store 移除；dirty + confirm 取消 → 不开浏览器且 tab 保留；dirty + confirm 确认 → 开浏览器且 tab 关闭。
+
+---
+
+## 0.2.0 基线重移植记录（2026-09-30，my-prs2）
+
+从 `c470eb5` / `3285112`（0.1.2 基线）重移植到 v0.24.x / DSH 0.2.0 基线（分析见 [cyan/2026-09-30-my-prs-rebase-analysis.md](cyan/2026-09-30-my-prs-rebase-analysis.md)），实施偏差：
+
+1. **声明点收缩**：image / pdf / binary-download 三个内置 viewer 已让给宿主 `ui-sidebar-documentpreview`（AGENTS §3.2 第 5 条，`editor.canOpen` 对这些扩展名拒认），内置只剩 **html** 一个 `browserUrl` 声明点；`mediaUrl` 形式的声明不再有任何内置消费者，契约保留给外部 viewer。
+2. **关 tab 语义自动升级**：`closeTab(tab.id, scope)` 在新基线先走 `native/surface.ts` 的原生路由（右侧栏宿主 tab）再回退底部工作台 reducer，且 `NativeTabBody` 的 record 以宿主 tab id 为键——**旧调用逐字保留即同时覆盖两种承载面**，无需适配代码。
+3. **媒体路由加固原样成立**：新基线的 `/sidebar/file` inline 分支仍未带 CSP/nosniff（宿主侧只有 `/sidebar/html` 有），`mediaHeadersFor()` 原样移植；`mediaTypeForPath` 的 svg → `image/svg+xml` 映射仍在。
+4. **设计文档中 image/pdf 的叙述保留为历史记录**（按钮作用域、取舍记录里的 svg 条目），反映 0.1.2 时代的设计上下文；当前真值以本节为准。

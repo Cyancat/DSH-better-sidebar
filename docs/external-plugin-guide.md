@@ -507,7 +507,7 @@ interface FileViewerProps {
 
 > **内置 viewer**（不可重复注册，全部 3 个）：markdown(0, fsRead；内嵌 HTML 支持：DOMPurify 白名单消毒、`<details>` 跨段嵌套、本地媒体 src 重写走 `/sidebar/file`；≥3 标题时浮动目录大纲。实现 `markdown-html.ts` / `MarkdownHtml.tsx` / `md-toc.tsx`，[设计文档](plans/2026-08-24-markdown-html-toc-design.md)) / html(0, fsRead, 沙箱 iframe 预览 + `htmlViewerNoSandbox` / `htmlViewerDefaultUnsafe` 两个宿主没有的逃生门) / code(-100, catch-all, fsRead, **可编辑** CodeMirror + 保存)。
 > code 是兜底 viewer：任何其他 viewer 未认领的文件都会落到 code（CodeMirror 文本编辑）；二进制文件经 head 重匹配找不到 sniffer，落到编辑器的下载面板。外部 viewer 注册同扩展名 + 更高 priority 即可覆盖内置的那三个。
-> html viewer 声明了 `browserUrl`，编辑器 header 会出现「在浏览器中打开」按钮（真实新 Tab：走带 CSP sandbox 的 `/sidebar/html` URL，顶层打开仍处 opaque origin，[设计文档](plans/2026-08-31-open-in-browser-design.md)）。image / pdf 已由宿主 documentpreview 接管（`canOpen` 拒认），不再经过本插件的 viewer 流程，故内置只剩 html 一个声明点。
+> html viewer 声明了 `browserUrl`，编辑器 header 会出现「在浏览器中打开」按钮（真实新 Tab：走带 CSP sandbox 的 `/sidebar/html` URL，顶层打开仍处 opaque origin，[设计文档](plans/2026-08-31-open-in-browser-design.md)）。点击即把文件交接给浏览器，侧边栏中该文件的标签页**自动关闭**；若有未保存草稿（html viewer 可编辑）会先弹确认，取消则不开不关。image / pdf 已由宿主 documentpreview 接管（`canOpen` 拒认），不再经过本插件的 viewer 流程，故内置只剩 html 一个声明点。
 >
 > ⚠️ **让给宿主的格式（重要，影响你的 viewer 能不能被调用）**：DSH 0.1.7 的 `ui-sidebar-documentpreview` 自带 code / excel(xlsx,xls,csv,tsv) / office（宿主侧转 PDF）/ pdf / image / html / markdown / text 预览，并带缩放与**按目录自动刷新**——本插件原有的 image / pdf / binary-download 三个 viewer 描述符因此删除。更重要的是**路由**：插件的 `editor` 类型在 `canOpen` 里对下列扩展名一律返回 false（`src/client/native/index.ts` 的 `HOST_OWNED_EXTS`），把地址让给内置 `text` 档，**根本不会进入本插件的 `matchFileViewer`**：
 >
