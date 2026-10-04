@@ -102,9 +102,19 @@ export interface FileViewerDescriptor {
 
 ## 0.2.0 基线重移植记录（2026-09-30，my-prs2）
 
-从 `c470eb5` / `3285112`（0.1.2 基线）重移植到 v0.24.x / DSH 0.2.0 基线（分析见 [cyan/2026-09-30-my-prs-rebase-analysis.md](cyan/2026-09-30-my-prs-rebase-analysis.md)），实施偏差：
+从 `c470eb5` / `3285112`（0.1.2 基线）重移植到 v0.24.x / DSH 0.2.0 基线（分析见 `my-prs2` 分支的 `docs/plans/cyan/2026-09-30-my-prs-rebase-analysis-0.2.0-baseline.md`），实施偏差：
 
 1. **声明点收缩**：image / pdf / binary-download 三个内置 viewer 已让给宿主 `ui-sidebar-documentpreview`（AGENTS §3.2 第 5 条，`editor.canOpen` 对这些扩展名拒认），内置只剩 **html** 一个 `browserUrl` 声明点；`mediaUrl` 形式的声明不再有任何内置消费者，契约保留给外部 viewer。
 2. **关 tab 语义自动升级**：`closeTab(tab.id, scope)` 在新基线先走 `native/surface.ts` 的原生路由（右侧栏宿主 tab）再回退底部工作台 reducer，且 `NativeTabBody` 的 record 以宿主 tab id 为键——**旧调用逐字保留即同时覆盖两种承载面**，无需适配代码。
 3. **媒体路由加固原样成立**：新基线的 `/sidebar/file` inline 分支仍未带 CSP/nosniff（宿主侧只有 `/sidebar/html` 有），`mediaHeadersFor()` 原样移植；`mediaTypeForPath` 的 svg → `image/svg+xml` 映射仍在。
 4. **设计文档中 image/pdf 的叙述保留为历史记录**（按钮作用域、取舍记录里的 svg 条目），反映 0.1.2 时代的设计上下文；当前真值以本节为准。
+
+---
+
+## 0.1.7 线移植记录（2026-10-04，local/my-prs-0.23）
+
+宿主冻结在 DSH 0.1.7 线后，把 `my-prs2`（0.2.0 形态）的 `d7cb134` / `6a36422` cherry-pick 到 0.1.7 线终点 `f29743f`（v0.23.0）上（规划见 [cyan/2026-10-04-my-prs-rebase-plan-0.1.7-line-v0.23.0.md](cyan/2026-10-04-my-prs-rebase-plan-0.1.7-line-v0.23.0.md)）：
+
+- **两个提交均零冲突落地**（含全部 20 份词典与测试）。0.23.0 与 0.24.1 在本特性触及的文件上几乎同构，0.2.0 适配提交不干扰本特性的 hunk。
+- 实施偏差：**无**——代码、测试、词典逐字沿用 0.2.0 形态；本分支的当前真值与上方 0.2.0 重移植记录一致（声明点只剩 html viewer、`closeTab` 走原生路由、媒体路由加固原样成立）。
+- 版本：`0.23.0-myprs.N` 本地维护线版本号（`dsh.plugin.json` 与 `SIDEBAR_SERVICE_VERSION` 同步；`f29743f` 基线本身遗留两处镜像停在 0.22.0，已一并修正）。

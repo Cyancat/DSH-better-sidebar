@@ -1,7 +1,7 @@
 # my-prs 系列 rebase 到 0.1.7 线（v0.23.0）的规划
 
 > 日期：2026-10-04　作者：cyan（agent 辅助分析）
-> 状态：**待执行**　范围：`my-prs2` 上的 open-in-browser 系列 → 0.1.7 本地维护线
+> 状态：**已执行完毕（local/my-prs-0.23，单测 1468 全绿 + 挂载 lane 7/7 通过）**　范围：`my-prs2` 上的 open-in-browser 系列 → 0.1.7 本地维护线
 > 文件名标记：本规划对应 **0.1.7 线（v0.23.0）**，随 `local/my-prs-0.23` 维护线分支走；
 > 0.2.0 基线（v0.24.1）的对应规划在 `my-prs2` 分支的
 > `docs/plans/cyan/2026-09-30-my-prs-rebase-analysis-0.2.0-baseline.md`（已执行完毕，产物即 `my-prs2`）。
@@ -108,3 +108,27 @@ dsh plugin --profile web add "file:$PWD/output/dsh-better-sidebar-0.23.0-myprs.1
 - **0.1.7 线**：`local/my-prs-0.23`（基线冻结在 `f29743f`，上游不再动这条线，基本零维护；有改动就 bump `-myprs.N` 重 pack 重装）。
 - **0.2.0 线**：`my-prs2` 原样保留（`d7cb134` / `6a36422` 在其上），将来升级 DSH 时直接可用。两边 feature 提交内容同源，对应关系由本文档记录。
 - 回退路径：profile `package.json` 里的 `file:` 依赖改回 `^0.21.1`（registry）即还原到当前状态。
+
+---
+
+## 6. 执行记录（2026-10-04，实际落地）
+
+分支形状（`f29743f` 之上）：
+
+```
+be1f009 chore: 版本镜像点同步 0.23.0-myprs.1（dsh.plugin.json + SIDEBAR_SERVICE_VERSION）
+cab89e0 chore: 本地维护线版本 0.23.0-myprs.1 + gitignore output/ 制品区
+38602c0 feat(editor): close the sidebar tab after handing the file to the browser
+3ae1c3b feat(editor): open-in-browser header button for browser-renderable viewers
+54ff76f docs(plans): my-prs rebase 到 0.1.7 线（v0.23.0）的规划
+```
+
+与规划的偏差 / 执行中新发现：
+
+1. **第二个 cherry-pick 也零冲突**：预演时 `6a36422` 直接叠 `f29743f` 有 2 个 docs 冲突，但按顺序先落 `d7cb134` 后上下文齐备，实际干净落地。
+2. **`f29743f` 基线自带 2 个红测试**（本次顺带修复）：v0.23.0 的 release 提交只 bump 了 `package.json`，`dsh.plugin.json` 与 `SIDEBAR_SERVICE_VERSION` 遗留在 0.22.0——`manifest-consistency` / `service` 两个 spec 在裸基线上即红。已在 `be1f009` 同步到 `0.23.0-myprs.1`，本分支比基线更绿。
+3. **沙箱环境的 pnpm store 绕行**：本机 agent 沙箱把全局 pnpm store（`~/.local/share/pnpm/store`）挡为只读。`pnpm install --store-dir .pnpm-store` 可解仓库内安装；但挂载 lane 内部由 dsh spawn 的 pnpm **不吃** `npm_config_store_dir`（npm 会对未认识的 `npm_config_*` 发出警告并丢弃，不透传给子进程）也**不吃** `XDG_DATA_HOME`（pnpm 对已有的 `~/.local/share/pnpm/store` 有向后兼容探测，存在即优先），最终靠提升执行权限写全局 store 跑通。本机缓存目录（`.pnpm-store/` 等）记入 `.git/info/exclude`，不进提交的 `.gitignore`。
+4. **冷启动 onboarding 竞态（lane 环境性抖动，非本分支回归）**：冷跑（npx 首次拉 dsh + 首次装 chromium + 首次建 store）时宿主 settings join 超过 60s，onboarding 弹窗（"Configure later"）在 dismissal 轮询放弃后才挂载，随后挡住 `sendFirstMessage` 的发送按钮点击（`mount.e2e.ts:161` 超时）。暖跑（缓存齐备）**7/7 全绿**。该竞态对本分支代码无涉，与 0.24 基线上加固过的 dismissal 窗口差异留给以后需要时再回移植。
+5. **验证结果**：`pnpm build` / `typecheck` / `test`（**1468 通过 / 9 skipped / 0 失败**）；`pnpm test:mount`（真实 `@deepseek-ai/dsh@0.1.7-rc.1` 挂载，**7/7**，含 tab sweep / editor chunk / mermaid / README 预览 / sidechat 烟测）。
+6. **制品**：`output/dsh-better-sidebar-0.23.0-myprs.1.tgz`（3.8 MB）。安装到真实 profile（用日常在用的 dsh 命令）：
+   `dsh plugin --profile web add "file:$PWD/output/dsh-better-sidebar-0.23.0-myprs.1.tgz"`
