@@ -62,6 +62,9 @@ web_modules/
 # Output of 'npm pack'
 *.tgz
 
+# 本地制品区（pnpm pack --pack-destination output；local/my-prs-0.23 维护线的 tarball 存放处）
+output/
+
 # Yarn Integrity file
 .yarn-integrity
 
