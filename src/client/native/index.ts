@@ -87,6 +87,12 @@ interface NativeTabRegistry {
     id: string
     kind: string
     multiple?: boolean
+    /**
+     * DSH 0.1.7+: keep a visited body mounted through hiding, session changes
+     * and docking. Default false = visibility-mounted (a hidden tab's body
+     * unmounts). Reserved for cheap singleton kinds — see registerFilesKind.
+     */
+    keepMounted?: boolean
     patterns?: readonly string[]
     priority?: 'extension' | 'builtin' | 'fallback'
     canOpen?: (address: string) => boolean
@@ -289,6 +295,16 @@ export function registerNativeSurface(deps: NativeSurfaceDeps): () => void {
         id,
         kind: FILES_KIND,
         priority: 'extension',
+        // The explorer is the one kind worth retaining: opening a file raises
+        // an EDITOR tab in the same pane, and a visibility-mounted files body
+        // would unmount on every such open — losing its level cache and live
+        // directory watcher (the expansion set itself survives in the records
+        // registry since the drop moved to tab close). Retained, switching
+        // back is instant and the watch never lapses. The kind is a pane
+        // singleton and its git polling is gated on `visible`, so the cost of
+        // keeping it mounted is bounded — unlike the editor kind, where every
+        // open file is a CodeMirror instance and retention does not scale.
+        keepMounted: true,
         title: () => t('files'),
         guide: [{
           // Required and unique per provider since DSH 0.1.6-alpha.2. This

@@ -228,7 +228,7 @@ describe('registerNativeSurface lifecycle (service-driven registration)', () => 
     service.registerTab({ id: 'browser', title: 'Browser', component: () => null })
     const records = createNativeTabRecords()
 
-    const registered: Array<{ id: string; kind: string; title: (address: string) => string; guide: unknown }> = []
+    const registered: Array<{ id: string; kind: string; title: (address: string) => string; guide: unknown; keepMounted?: boolean }> = []
     const slotKeys: string[] = []
     // The registry is ABSENT while the slot callback fires and appears later
     // (that ordering is the regression): a holder keeps the timing honest
@@ -262,7 +262,7 @@ describe('registerNativeSurface lifecycle (service-driven registration)', () => 
     // …and everything registers once it appears.
     registry.current = {
       register: (definition) => {
-        registered.push({ id: definition.id, kind: definition.kind, title: definition.title, guide: definition.guide })
+        registered.push({ id: definition.id, kind: definition.kind, title: definition.title, guide: definition.guide, keepMounted: (definition as { keepMounted?: boolean }).keepMounted })
         return () => {}
       },
     }
@@ -285,6 +285,16 @@ describe('registerNativeSurface lifecycle (service-driven registration)', () => 
     expect(editorType?.guide).toBeUndefined()
     const filesType = registered.find(entry => entry.kind === 'files')
     expect(filesType?.guide).toBeDefined()
+    // The explorer is the ONE retained kind: opening a file raises an editor
+    // tab in the same pane, and a visibility-mounted files body unmounted on
+    // every such open (losing the level cache and the directory watcher).
+    // The kind is a pane singleton with `visible`-gated git polling, so the
+    // retention cost is bounded — every other kind stays visibility-mounted:
+    // an editor tab is a CodeMirror instance and retention does not scale.
+    expect(filesType?.keepMounted).toBe(true)
+    for (const entry of registered) {
+      if (entry.kind !== 'files') expect(entry.keepMounted, `keepMounted of ${entry.kind}`).toBeUndefined()
+    }
     // The takeover carries the editor's glyph, so the "Files" guide row is
     // not the only one with a blank icon slot.
     const filesGuide = filesType?.guide as Array<{ icon?: unknown; title: () => string; description?: () => string }> | undefined
@@ -445,6 +455,114 @@ describe('NativeTabBody full-height host wrapper', () => {
     expect(wrapper!.childElementCount).toBe(1)
     act(() => { root?.unmount() })
     host.remove()
+  })
+})
+
+describe('NativeTabBody record lifetime (drop on tab close, not on unmount)', () => {
+  /**
+   * Regression: the record used to drop in the body's unmount cleanup. The
+   * host visibility-mounts tab bodies, so opening a file (which raises an
+   * editor tab in the same pane) unmounted the files body and wiped its
+   * view — the expansion set reset to the root on every file open. The
+   * record must survive a body unmount/remount and end only when the
+   * native occurrence's signal aborts (the tab left the committed layout).
+   */
+  const mountBody = (
+    records: ReturnType<typeof createNativeTabRecords>,
+    service: ReturnType<typeof createBetterSidebarService>,
+    info: unknown,
+  ): { host: HTMLDivElement; unmount: () => void } => {
+    const store = createSidebarStore()
+    store.setSession('s1')
+    const sessions = { list: { subscribe: () => () => {}, getSnapshot: () => ({ byId: {} }) } }
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    let root: Root | undefined
+    act(() => {
+      root = createRoot(host)
+      root.render(createElement(NativeTabBody, {
+        sessionId: 's1',
+        ctx: { sessions } as never,
+        store,
+        service,
+        records,
+        descriptorId: 'stub',
+        useTabInfo: () => info as never,
+      }))
+    })
+    return {
+      host,
+      unmount: () => {
+        act(() => { root?.unmount() })
+        host.remove()
+      },
+    }
+  }
+
+  it('keeps the view across an unmount/remount and drops it on the occurrence abort', () => {
+    const service = createBetterSidebarService(createSidebarStore())
+    service.registerTab({
+      id: 'stub',
+      title: 'Stub',
+      component: () => createElement('div', { 'data-stub-body': '' }, 'stub body'),
+    })
+    const records = createNativeTabRecords()
+    const controller = new AbortController()
+    const info = {
+      tab: {
+        id: 'native-10',
+        kind: 'stub',
+        title: 'Stub',
+        contentId: 'sidebar://stub',
+        visible: true,
+        navigation: { address: 'sidebar://stub', params: undefined, revision: 0 },
+        signal: controller.signal,
+      },
+    }
+    const first = mountBody(records, service, info)
+    expect(records.has('native-10')).toBe(true)
+    act(() => { records.toggleExpanded('native-10', '/work/src') })
+    act(() => { records.update('native-10', { title: 'Retitled' }) })
+
+    // A hide (body unmount) must NOT end the record: the expansion set and
+    // the plugin-side title mutation survive.
+    first.unmount()
+    expect(records.has('native-10')).toBe(true)
+    expect(records.get('native-10')?.expanded).toEqual(['/work/src'])
+    expect(records.get('native-10')?.tab.title).toBe('Retitled')
+
+    // The remounted body re-ensures the SAME record (no fresh mint).
+    const second = mountBody(records, service, info)
+    expect(records.get('native-10')?.expanded).toEqual(['/work/src'])
+    expect(records.get('native-10')?.tab.title).toBe('Retitled')
+
+    // The tab closing (the occurrence signal aborting) ends the record.
+    act(() => { controller.abort() })
+    expect(records.has('native-10')).toBe(false)
+    second.unmount()
+    expect(records.has('native-10')).toBe(false)
+  })
+
+  it('drops immediately when the body first renders with an already-aborted signal', () => {
+    const service = createBetterSidebarService(createSidebarStore())
+    service.registerTab({ id: 'stub', title: 'Stub', component: () => null })
+    const records = createNativeTabRecords()
+    const controller = new AbortController()
+    controller.abort()
+    const info = {
+      tab: {
+        id: 'native-11',
+        kind: 'stub',
+        title: 'Stub',
+        contentId: 'sidebar://stub',
+        visible: true,
+        navigation: { address: 'sidebar://stub', params: undefined, revision: 0 },
+        signal: controller.signal,
+      },
+    }
+    const { unmount } = mountBody(records, service, info)
+    expect(records.has('native-11')).toBe(false)
+    unmount()
   })
 })
 

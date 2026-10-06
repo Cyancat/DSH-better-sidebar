@@ -11,7 +11,9 @@
  * The adapter owns three things the native layout does not carry:
  *
  * - a synthetic plugin `SidebarTab` per native tab id, minted from the native
- *   record + `navigation.params` and kept live across navigations, so a
+ *   record + `navigation.params` and kept live across navigations AND body
+ *   remounts (the host visibility-mounts bodies, so a hide is not a close —
+ *   the record ends only when the tab's occurrence signal aborts), so a
  *   component that retitles itself (`updateTab`) or rewrites its path (the
  *   editor's in-place file switch) keeps working;
  * - the explorer's per-tab expansion/reveal sets;
@@ -255,7 +257,8 @@ function useSessionCwd(ctx: Context, sessionId: string): string | undefined {
 /**
  * One plugin tab rendered inside the native right Sidebar: the descriptor's
  * own component with the plugin's props, over a synthetic record minted from
- * the native tab and dropped when the record ends.
+ * the native tab and dropped when the native tab CLOSES (its occurrence
+ * signal aborts) — a body unmount is only a hide, never the record's end.
  */
 export function NativeTabBody(props: NativeBodyInjected & NativeBodyFrameworkProps): ReactNode {
   const { ctx, store, service, records, descriptorId, useTabInfo } = props
@@ -272,7 +275,11 @@ export function NativeTabBody(props: NativeBodyInjected & NativeBodyFrameworkPro
     ? undefined
     : { ...derived, ...nativeTab.navigation.params }
   const descriptor = service.getTab(descriptorId)
-  const view = records.ensure({
+  // A body whose occurrence has ALREADY ended must not mint: the abort's
+  // drop notifies subscribers, which can re-render this body in the window
+  // before the host tears it down — an unconditional ensure would re-mint
+  // the record the drop just removed (a leaked fresh view per closed tab).
+  const view = nativeTab.signal.aborted ? undefined : records.ensure({
     id: nativeTab.id,
     kind: nativeTab.kind,
     title: nativeTab.title,
@@ -285,7 +292,29 @@ export function NativeTabBody(props: NativeBodyInjected & NativeBodyFrameworkPro
       return minted === null ? undefined : { title: minted.tab.title, meta: minted.tab.meta }
     },
   })
-  useEffect(() => () => { records.drop(nativeTab.id) }, [records, nativeTab.id])
+  // The record lives as long as the native TAB, not as long as this body:
+  // the host visibility-mounts bodies (a tab whose type did not declare
+  // `keepMounted` unmounts whenever it is merely hidden), so dropping on
+  // unmount wiped the whole view — the files tree's expansion set, an
+  // editor's retitle — on every tab switch, resetting the explorer to the
+  // root each time a file open raised an editor tab. The occurrence signal
+  // aborts exactly when the tab leaves the committed layout (a close, or
+  // the package unloading); that is the drop moment. surface.ts's close()
+  // also drops eagerly on the plugin's own close path — `drop` is
+  // idempotent, so the two never race.
+  const { id: nativeTabId, signal: nativeSignal } = nativeTab
+  useEffect(() => {
+    const drop = (): void => { records.drop(nativeTabId) }
+    if (nativeSignal.aborted) {
+      drop()
+      return
+    }
+    nativeSignal.addEventListener('abort', drop, { once: true })
+    return () => { nativeSignal.removeEventListener('abort', drop) }
+  }, [records, nativeTabId, nativeSignal])
+  // The occurrence ended: the host is tearing this seat down (the tab left
+  // the committed layout), so there is nothing to draw.
+  if (view === undefined) return null
   if (descriptor === undefined) {
     // The orphaned fallback sits in the SAME native host as a live body, so
     // it gets the same full-height box (its own root also relies on the
