@@ -37,6 +37,7 @@ import { MdToc } from './md-toc.tsx'
 import { splitMermaidBlocks } from './mermaid-blocks.ts'
 import { t } from './locales.ts'
 import { HTML_IFRAME_SANDBOX } from './html-preview.ts'
+import { readRemountDraft, writeRemountDraft, dropRemountDraftIfBase } from './remount-cache.ts'
 import type { EditorToolbarState, FileViewerProps } from './service.ts'
 import css from './sidebar.module.css'
 
@@ -53,14 +54,35 @@ const previewScrollKey = (scope: { sessionId: string }, path: string): string =>
 
 export function TextEditor(props: FileViewerProps) {
   const { ctx, scope, path, viewerId, content, truncated } = props
-  const [mode, setMode] = useState<ViewMode>('preview')
+  /**
+   * This tab instance's key in the remount draft memory. The native right
+   * Sidebar unmounts a hidden tab's body, which destroys the CodeMirror view
+   * — and with it an unsaved draft, silently (the manual refresh button at
+   * least confirms first). The memory carries a dirty draft across such a
+   * hide/remount cycle; the host passes its per-tab `remountKey` (two tabs
+   * can show one file, so a path key would leak one tab's draft into the
+   * other). The base guard in {@link readRemountDraft} keeps a stale draft
+   * off freshly changed content.
+   */
+  const remountDraftKey = `${scope.sessionId}::${props.remountKey ?? path}`
+  /** The remembered draft, only while its base still matches the content. */
+  const rememberedDraft = (): ReturnType<typeof readRemountDraft> =>
+    content === undefined ? undefined : readRemountDraft(remountDraftKey, content)
+  const [mode, setMode] = useState<ViewMode>(() => rememberedDraft()?.mode ?? 'preview')
   /** The editor's current text (null while clean); preview renders this. */
-  const [draft, setDraft] = useState<string | null>(null)
-  const [dirty, setDirty] = useState(false)
+  const [draft, setDraft] = useState<string | null>(() => rememberedDraft()?.text ?? null)
+  const [dirty, setDirty] = useState(() => rememberedDraft() !== undefined)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<CodeMirrorView | null>(null)
   const savingRef = useRef(false)
+  /** Live mirrors for the view teardown (its closure predates later edits). */
+  const dirtyRef = useRef(dirty)
+  const modeRef = useRef(mode)
+  useEffect(() => {
+    dirtyRef.current = dirty
+    modeRef.current = mode
+  })
   /** The theme compartment of the current view (reconfigured on scheme flip). */
   const themeCompRef = useRef<CmThemeCompartment | null>(null)
   /** The app's resolved color scheme; the editor re-themes in place on flips. */
@@ -101,11 +123,14 @@ export function TextEditor(props: FileViewerProps) {
 
   useEffect(() => subscribeColorScheme(() => { setDark(isDarkScheme()) }), [])
 
-  // A new file (tab switch) starts clean: fresh preview mode, no draft.
+  // A new file (tab switch) starts clean: fresh preview mode, no draft — but
+  // a REMOUNT (same tab, same base content) restores the remembered dirty
+  // draft the teardown captured, with the mode the user was in.
   useEffect(() => {
-    setMode('preview')
-    setDraft(null)
-    setDirty(false)
+    const remembered = rememberedDraft()
+    setMode(remembered?.mode ?? 'preview')
+    setDraft(remembered?.text ?? null)
+    setDirty(remembered !== undefined)
     setSaveState('idle')
     selectionPopup.hide()
     // hide() reads a live ref; the reset must fire only on a content (file)
@@ -134,8 +159,11 @@ export function TextEditor(props: FileViewerProps) {
     const language = languageForPath(path)
     const themeComp = new CmThemeCompartment()
     themeCompRef.current = themeComp
+    // A remount restores the captured draft as the document (the base guard
+    // already confirmed it sits on THIS content); a fresh start uses the
+    // fetched content.
     const state = EditorState.create({
-      doc: content,
+      doc: rememberedDraft()?.text ?? content,
       extensions: [
         CodeMirrorView.lineWrapping,
         lineNumbers(),
@@ -207,6 +235,21 @@ export function TextEditor(props: FileViewerProps) {
     const view = new CodeMirrorView({ state, parent: host })
     viewRef.current = view
     return () => {
+      // The view is going away (tab hidden, file switched, tab closed). A
+      // dirty draft must survive a mere HIDE: capture it (the host's
+      // discardDraft runs before a confirmed refresh, so this write never
+      // resurrects a draft the user agreed to drop). A clean teardown drops
+      // only a draft still sitting on THIS base — an older dirty draft of
+      // the same tab (captured before an in-place file switch) survives.
+      if (dirtyRef.current) {
+        writeRemountDraft(remountDraftKey, {
+          base: content,
+          text: view.state.doc.toString(),
+          mode: modeRef.current,
+        })
+      } else {
+        dropRemountDraftIfBase(remountDraftKey, content)
+      }
       view.destroy()
       viewRef.current = null
       themeCompRef.current = null
@@ -432,7 +475,17 @@ export function TextEditor(props: FileViewerProps) {
     if (!hostToolbar) return
     // `save` reads live refs only, and `setMode` is the stable state setter —
     // registering this render's closures is safe for the mount's lifetime.
-    props.onToolbarControls?.({ setMode, save })
+    // `discardDraft` is the host's confirmed-refresh signal: it clears the
+    // dirty flag so the teardown that follows does NOT capture the draft
+    // into the remount memory (the user agreed to drop it).
+    props.onToolbarControls?.({
+      setMode,
+      save,
+      discardDraft: () => {
+        dirtyRef.current = false
+        setDirty(false)
+      },
+    })
     return () => { props.onToolbarControls?.(null) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hostToolbar])

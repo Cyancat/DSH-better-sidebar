@@ -12,6 +12,7 @@ import { act } from 'react-dom/test-utils'
 import { renderRoot, setupReactAct } from './test-utils.ts'
 import type { Context } from '../src/context-types.ts'
 import { EditorHost } from '../src/client/EditorHost.tsx'
+import { clearRemountCachesForTests } from '../src/client/remount-cache.ts'
 import { createBetterSidebarService, type FileViewerProps } from '../src/client/service.ts'
 import { allLeaves, createSidebarStore, type SidebarTab } from '../src/client/state.ts'
 
@@ -108,6 +109,8 @@ function click(button: HTMLButtonElement): void {
 beforeEach(() => {
   fsRead.mockReset()
   fsRead.mockResolvedValue({ kind: 'text', content: 'hello', truncated: false })
+  // The remount load cache is module-level: no carry-over between tests.
+  clearRemountCachesForTests()
 })
 
 describe('EditorHost refresh (issue #167)', () => {
@@ -175,3 +178,69 @@ describe('EditorHost refresh (issue #167)', () => {
     }
   })
 })
+
+describe('EditorHost visibility remount (native right Sidebar hides a tab)', () => {
+  it('restores the ready load without re-fetching', async () => {
+    const { ctx, fileTab } = setup()
+    const first = mount(ctx, fileTab)
+    await act(async () => { await Promise.resolve() })
+    expect(reads()).toBe(1)
+    expect(container_text(first.container)).toContain('mock-preview')
+    // The hide: the tab body unmounts (the editor kind is visibility-mounted).
+    first.unmount()
+
+    // The return: a fresh mount restores the cached load — no fsRead, no
+    // loading flash (the useState seed is the ready payload).
+    const second = mount(ctx, fileTab)
+    try {
+      await act(async () => { await Promise.resolve() })
+      expect(reads()).toBe(1)
+      expect(container_text(second.container)).toContain('mock-preview')
+    } finally {
+      second.unmount()
+    }
+  })
+
+  it('the manual refresh still re-fetches after a remount', async () => {
+    const { ctx, fileTab } = setup()
+    const first = mount(ctx, fileTab)
+    await act(async () => { await Promise.resolve() })
+    first.unmount()
+    const second = mount(ctx, fileTab)
+    try {
+      await act(async () => { await Promise.resolve() })
+      expect(reads()).toBe(1)
+      const refresh = refreshButton(second.container)
+      expect(refresh).not.toBeNull()
+      click(refresh!)
+      await act(async () => { await Promise.resolve() })
+      expect(reads()).toBe(2)
+    } finally {
+      second.unmount()
+    }
+  })
+
+  it('a path change on the same tab instance re-fetches (the cache is per path)', async () => {
+    const { ctx, fileTab } = setup()
+    const first = mount(ctx, fileTab)
+    await act(async () => { await Promise.resolve() })
+    expect(reads()).toBe(1)
+    first.unmount()
+
+    // An in-place switch rewrites the tab's path; the remount must not
+    // resurrect the previous file.
+    const moved = (): SidebarTab => ({ ...fileTab(), path: '/tmp/b.ts', title: 'b.ts' })
+    const second = mount(ctx, moved)
+    try {
+      await act(async () => { await Promise.resolve() })
+      expect(reads()).toBe(2)
+    } finally {
+      second.unmount()
+    }
+  })
+})
+
+/** The container's text (a helper so long lines stay out of the cases). */
+function container_text(container: HTMLDivElement): string {
+  return container.textContent ?? ''
+}

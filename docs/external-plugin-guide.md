@@ -481,6 +481,10 @@ interface FileViewerProps {
   toolbar?: 'self' | 'host'
   onToolbarState?: (state: EditorToolbarState) => void
   onToolbarControls?: (controls: EditorToolbarControls | null) => void
+  remountKey?: string       // 宿主给的稳定 tab 实例键：内置文本编辑器用它把
+                            // 未保存草稿挂进重挂载记忆（原生右侧栏会卸载隐藏
+                            // tab 的 body）；EditorToolbarControls 同理多一个
+                            // 内部可选方法 discardDraft()（确认刷新后的草稿丢弃信号）
 }
 ```
 

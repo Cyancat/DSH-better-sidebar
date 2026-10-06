@@ -67,4 +67,4 @@
 ## 6. 遗留与边界
 
 - **整页刷新不持久化**：`View` 是纯内存结构，页面刷新后 `expanded` 仍丢（插件自有布局路径里是存 per-session store 持久化的，原生路径没有）。如需覆盖，方向是把展开态写进原生 tab 的 navigation params 或插件 store 按 tab id 持久化——独立改进项，与本次不冲突。
-- `editor` kind 保持 visibility-mounted 是刻意取舍（见 §3），未来若出现「editor tab 切回后滚动位置/光标丢失」类诉求，应走「状态入 record + 重挂载恢复」路线而不是给 editor 开 `keepMounted`。
+- `editor` kind 保持 visibility-mounted 是刻意取舍（见 §3），未来若出现「editor tab 切回后滚动位置/光标丢失」类诉求，应走「状态入 record + 重挂载恢复」路线而不是给 editor 开 `keepMounted`。**（已落地：[2026-10-06-editor-tab-remount-restore.md](2026-10-06-editor-tab-remount-restore.md)——重挂载恢复 load 缓存 + 脏草稿记忆，顺带修掉了切 tab 静默丢未保存草稿。）**

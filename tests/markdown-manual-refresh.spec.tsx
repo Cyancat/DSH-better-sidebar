@@ -10,6 +10,7 @@ import { renderRoot, setupReactAct } from './test-utils.ts'
 import type { Context } from '../src/context-types.ts'
 import { EditorHost } from '../src/client/EditorHost.tsx'
 import { api } from '../src/client/api.ts'
+import { clearRemountCachesForTests } from '../src/client/remount-cache.ts'
 import { createBetterSidebarService, type FileViewerProps } from '../src/client/service.ts'
 import { allLeaves, createSidebarStore, type SidebarTab } from '../src/client/state.ts'
 
@@ -93,6 +94,8 @@ afterEach(() => {
   markDirty = undefined
   vi.restoreAllMocks()
   vi.useRealTimers()
+  // The remount load cache is module-level: no carry-over between tests.
+  clearRemountCachesForTests()
 })
 
 describe('Markdown manual refresh', () => {

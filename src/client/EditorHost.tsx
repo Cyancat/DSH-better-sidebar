@@ -34,6 +34,7 @@ import { FenceErrorNotice } from './FenceErrorNotice.tsx'
 import { planFirstMatch, planFsReadOutcome, type EditorLoadAction } from './editor-load.ts'
 import { baseName } from './FileTree.tsx'
 import { createFrameBatcher } from './frame-batcher.ts'
+import { dropRemountDraft, readRemountLoad, writeRemountLoad } from './remount-cache.ts'
 import { openSidebarFile } from './sidebar-file.ts'
 import { openWithSshActive, openWithUrl, parseOpenWithConfig, resolveOpenWithTargets } from './open-with.ts'
 import { updatePluginSettings } from './plugin-settings.ts'
@@ -125,7 +126,22 @@ export function EditorHost(props: {
   // as its path. It renders the file tree rooted at that folder instead of
   // the viewer loading flow (a directory is not a file).
   const isDir = metaOf(tab).dir === true
-  const [load, setLoad] = useState<EditorLoad>({ status: 'loading' })
+  /**
+   * This tab instance's key in the remount load cache. The native right
+   * Sidebar unmounts a hidden tab's body (the editor kind is deliberately
+   * NOT `keepMounted` — see native/index.ts), so without the cache a tab
+   * switch re-fetched the file on every return: a visible "auto refresh"
+   * the manual refresh button made redundant. Keyed by tab INSTANCE (two
+   * tabs can show one file), scoped to the session.
+   */
+  const remountKey = `${scope.sessionId}::${tab.id}`
+  const [load, setLoad] = useState<EditorLoad>(() => {
+    // Seed a remount straight from the cache: no loading flash, no refetch.
+    const hit = readRemountLoad(remountKey)
+    return hit !== undefined && hit.path === (tab.path ?? '')
+      ? { status: 'ready', viewer: hit.viewer, content: hit.content, truncated: hit.truncated, mediaUrl: hit.mediaUrl, customData: hit.customData }
+      : { status: 'loading' }
+  })
   // Manual refresh (issue #167): bumping the sequence re-runs the load effect
   // with the same path/scope — the only reload entry besides open/close.
   const [reloadSeq, setReloadSeq] = useState(0)
@@ -138,6 +154,12 @@ export function EditorHost(props: {
         ? window.confirm(t('refreshUnsavedConfirm'))
         : false
       if (!confirmed) return
+      // The confirm promised a DISCARD: mark the draft discarded and forget
+      // the remembered one up front — the teardown's capture runs AFTER this
+      // (the reload unmounts the viewer), so without both the draft would
+      // restore on the very mount the refresh produces.
+      controlsRef.current?.discardDraft?.()
+      dropRemountDraft(remountKey)
     }
     setReloadSeq(sequence => sequence + 1)
   }
@@ -331,13 +353,37 @@ export function EditorHost(props: {
   }
 
   useEffect(() => {
-    // A (re)load or a path-less tab clears any hoisted toolbar state — the
-    // fresh viewer re-registers its own.
-    setToolbar(null)
     // The seeded home tab (no path) never loads a viewer — the empty-state
     // hint renders until the user picks a file. A folder tab never loads a
     // viewer either — its tree is rooted at the folder.
-    if (showEmpty || isDir) return
+    if (showEmpty || isDir) {
+      setToolbar(null)
+      return
+    }
+    // A visibility remount (reloadSeq still 0) with a cached ready load for
+    // THIS path restores it instead of re-fetching — switching tabs and back
+    // is not a refresh. Only the manual button (reloadSeq > 0), a path/cwd
+    // change and the first mount reach the filesystem. The toolbar is NOT
+    // cleared here: this branch runs right after a fresh mount (the hoisted
+    // state starts empty) and the viewer child reports BEFORE this parent
+    // effect — clearing would wipe the report it just made.
+    if (reloadSeq === 0) {
+      const hit = readRemountLoad(remountKey)
+      if (hit !== undefined && hit.path === path) {
+        setLoad({
+          status: 'ready',
+          viewer: hit.viewer,
+          content: hit.content,
+          truncated: hit.truncated,
+          mediaUrl: hit.mediaUrl,
+          customData: hit.customData,
+        })
+        return
+      }
+    }
+    // A (re)load or a path-less tab clears any hoisted toolbar state — the
+    // fresh viewer re-registers its own.
+    setToolbar(null)
     let cancelled = false
     // Aborts the matched viewer's `load` when the editor tears down (tab
     // closed, path changed, session switched) or re-matches the viewer.
@@ -359,11 +405,20 @@ export function EditorHost(props: {
             mediaUrl: action.mediaUrl,
             customData: action.customData,
           })
+          writeRemountLoad(remountKey, {
+            path,
+            viewer: action.viewer,
+            content: action.content,
+            truncated: action.truncated,
+            mediaUrl: action.mediaUrl,
+            customData: action.customData,
+          })
           return
         case 'customLoad':
           void action.viewer.load?.(path, scope, controller.signal).then((data) => {
             if (cancelled) return
             setLoad({ status: 'ready', viewer: action.viewer, customData: data })
+            writeRemountLoad(remountKey, { path, viewer: action.viewer, customData: data })
           }).catch((error: unknown) => {
             if (cancelled) return
             setLoad({ status: 'error', message: error instanceof Error ? error.message : String(error) })
@@ -392,7 +447,7 @@ export function EditorHost(props: {
     // The deps are deliberately granular: the scope object's identity churns,
     // only its sessionId / cwd fields gate the (re)fetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope.sessionId, scope.cwd, path, ctx, showEmpty, isDir, reloadSeq])
+  }, [scope.sessionId, scope.cwd, path, ctx, showEmpty, isDir, reloadSeq, remountKey])
 
   // Save-then-refresh in preview mode (issue #167 part C): the edge into
   // 'saved' (never a lingering 'saved' state) triggers exactly one reload, so
@@ -557,6 +612,9 @@ export function EditorHost(props: {
             truncated: load.truncated,
             mediaUrl: load.mediaUrl,
             customData: load.customData,
+            // The text editor's draft memory key (survives the native
+            // Sidebar's visibility unmount); other viewers ignore it.
+            remountKey,
             // The viewer's toolbar always hoists into this host's header.
             toolbar: 'host',
             onToolbarState,

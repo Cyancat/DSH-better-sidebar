@@ -9,15 +9,21 @@
  * only, no editor chrome); file tabs keep the full chrome in both modes.
  */
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createElement, useEffect, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { act } from 'react-dom/test-utils'
 import type { Context } from '../src/context-types.ts'
 import { EditorHost } from '../src/client/EditorHost.tsx'
+import { clearRemountCachesForTests } from '../src/client/remount-cache.ts'
 import { createBetterSidebarService, type FileViewerProps } from '../src/client/service.ts'
 import { allLeaves, createSidebarStore, type SidebarTab } from '../src/client/state.ts'
 import { t } from '../src/client/locales.ts'
+
+// The remount load cache is module-level: keep tests independent.
+afterEach(() => {
+  clearRemountCachesForTests()
+})
 
 // The tree mounts inside EditorHost in these scenarios, so the api seam must
 // answer without a host (the sibling FileTree specs mock it the same way).

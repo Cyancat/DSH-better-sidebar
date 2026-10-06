@@ -286,6 +286,12 @@ export interface FileViewerProps {
   /** Internal: the viewer registers its toolbar commands on mount (null on
    *  unmount). */
   onToolbarControls?: (controls: EditorToolbarControls | null) => void
+  /** Internal: the editor host's stable per-tab-instance key. The built-in
+   *  text editor uses it to keep an unsaved draft across the native right
+   *  Sidebar's visibility unmounts (a hidden tab's body unmounts and the
+   *  CodeMirror document dies with it). Viewers that ignore it render
+   *  exactly as before. */
+  remountKey?: string
 }
 
 /** The toolbar state a text editor reports to the host's merged-mode header. */
@@ -303,6 +309,14 @@ export interface EditorToolbarState {
 export interface EditorToolbarControls {
   setMode(mode: 'preview' | 'edit'): void
   save(): void
+  /**
+   * Internal (built-in text editor): mark the current draft DISCARDED, so
+   * the teardown that follows (the manual refresh's reload unmounts the
+   * viewer) does not capture it into the remount draft memory. The host
+   * calls this only after the refresh confirm — without it the confirmed
+   * discard would restore on the very next mount.
+   */
+  discardDraft?(): void
 }
 
 /** Describes one file previewer (builtins register themselves too). */
