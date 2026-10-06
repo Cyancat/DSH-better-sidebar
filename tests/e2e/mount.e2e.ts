@@ -330,8 +330,11 @@ test('plugin mounts into the DSH shell and survives a built-in tab sweep', async
   // The sweep opened the Side Chat type, whose view auto-creates a thread and
   // polls the transcript — that poll MUST ride the plugin's own
   // sidechat.events route (the host transport this lane locks). The poll runs
-  // only while the tab is visible, so activate its chip first.
-  await pane.getByRole('tab', { name: /Side Chat|侧边对话|侧边聊天/ }).first().click()
+  // only while the tab is visible, so activate its chip first. The chip's
+  // name is either the descriptor title ("Side Chat") or — since the record
+  // now survives the tab being hidden, which is the fix this lane guards —
+  // the thread's durable label the view retitles itself to ("New thread").
+  await pane.getByRole('tab', { name: /Side Chat|New thread|侧边对话|新对话|新對話|侧边聊天/ }).first().click()
   await expect
     .poll(
       () => page.evaluate(() =>
@@ -492,8 +495,13 @@ test('plugin mounts into the DSH shell and survives a built-in tab sweep', async
   const mdRow = pane.locator(`[role="button"][title$="${SEEDED_MD_FILE}"]:visible`)
   await expect(mdRow, `the seeded "${SEEDED_MD_FILE}" file must appear in the plugin's explorer`).toHaveCount(1, { timeout: 30_000 })
   await mdRow.click({ position: { x: 8, y: 8 } })
+  // The text also lives in the tab's HIDDEN CodeMirror source (TextEditor
+  // keeps the CM host mounted, display:none, in preview mode — and the
+  // editor chunk is already warm from the hello.txt probe above), so a raw
+  // getByText count races the CM mount and can resolve to 2. Pin the
+  // assertion to the VISIBLE match — the preview paragraph.
   await expect(
-    pane.getByText('tail text'),
+    pane.getByText('tail text').filter({ visible: true }),
     'the markdown preview must render the seeded document',
   ).toHaveCount(1, { timeout: 30_000 })
   await mermaidChunk
