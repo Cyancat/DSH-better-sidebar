@@ -110,7 +110,15 @@ export function EditorHost(props: {
 }) {
   const { ctx, store, scope, tab, expanded, revealed, onToggleDir, onReferenceFile } = props
   const visible = props.visible !== false
-  const path = tab.path ?? ''
+  // Fallback absolutization: a relative path can still land in an editor
+  // tab (a native open whose session cwd was not in the list yet when its
+  // params were derived, a direct openTab with a relative seed). fsRead
+  // resolves such a path server-side, but the URL-routed previews
+  // (/sidebar/html, the media route) cannot — their decoders assume an
+  // absolute path and silently re-root a relative one at '/'. Resolve
+  // against the live scope cwd so every consumer below sees the absolute
+  // form. The empty path (the home/explorer state) must stay empty.
+  const path = tab.path === undefined || tab.path === '' ? '' : resolveSidebarPath(scope.cwd, tab.path)
   const title = tab.title
   // A folder window: the model's `sidebar_open` (or any caller) opens a
   // directory as an editor tab carrying `meta.dir: true` with the directory

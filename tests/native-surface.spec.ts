@@ -402,6 +402,84 @@ describe('registerNativeSurface lifecycle (service-driven registration)', () => 
   })
 })
 
+describe('native editor file params (session-relative path resolution)', () => {
+  /**
+   * Regression: a deliverables card opens the path exactly as the `present`
+   * tool stored it — RELATIVE to the session cwd — and the host's
+   * fileAddressFor keeps that spelling in the session-scoped address. The
+   * editor's URL-routed previews (/sidebar/html, the media route) assume an
+   * absolute path (their decoders re-root a relative one at '/', so
+   * 'workspace/a.html' became the ENOENT '/workspace/a.html'), so the tab's
+   * file params must resolve the address path against the session cwd.
+   */
+  const captureParamsOf = (cwd: string | undefined): ((info: { tab: { contentId: string } }) => { path: string } | undefined) => {
+    const store = createSidebarStore()
+    store.setSession('s1')
+    const service = createBetterSidebarService(store)
+    service.registerTab({ id: 'editor', title: 'Files', component: () => null })
+    const records = createNativeTabRecords()
+    const slots: Array<{ name: string; key: string; inject: (sessionId: string) => { paramsOf?: unknown } }> = []
+    const ctx = {
+      inject: (_deps: readonly string[], callback: (injected: { get: () => unknown }) => void) => {
+        callback({ get: () => ({ register: () => () => {} }) })
+        return { dispose: () => {} }
+      },
+      get: () => undefined,
+      sessions: {
+        list: {
+          subscribe: () => () => {},
+          getSnapshot: () => ({ byId: cwd === undefined ? {} : { s1: { cwd } } }),
+        },
+      },
+      slots: {
+        inject: (_key: string, callback: () => unknown) => { callback() },
+        register: (descriptor: { name: string; key: string; inject: (sessionId: string) => { paramsOf?: unknown } }) => {
+          slots.push(descriptor)
+          return () => {}
+        },
+      },
+    }
+    registerNativeSurface({ ctx: ctx as never, store, service, records })
+    const body = slots.find(slot => slot.name === 'sidebar.right.pane.tab' && slot.key === 'dsh-better-sidebar:editor')
+    expect(body, 'the editor body slot did not register').toBeDefined()
+    const injected = body!.inject('s1')
+    expect(typeof injected.paramsOf, 'the editor body carries no paramsOf').toBe('function')
+    return injected.paramsOf as (info: { tab: { contentId: string } }) => { path: string } | undefined
+  }
+
+  const infoOf = (contentId: string): { tab: { contentId: string } } => ({ tab: { contentId } })
+
+  it('resolves a session-relative address path against the session cwd', () => {
+    const paramsOf = captureParamsOf('/home/me/proj')
+    expect(paramsOf(infoOf('dsh-resource://file/session/s1/workspace/contract/a.html')))
+      .toEqual({ path: '/home/me/proj/workspace/contract/a.html' })
+  })
+
+  it('keeps an absolute path (inside the session scope or the absolute scope) as written', () => {
+    const paramsOf = captureParamsOf('/home/me/proj')
+    expect(paramsOf(infoOf('dsh-resource://file/session/s1//outside/a.ts'))).toEqual({ path: '/outside/a.ts' })
+    expect(paramsOf(infoOf('dsh-resource://file/absolute/home/me/notes.txt'))).toEqual({ path: '/home/me/notes.txt' })
+  })
+
+  it('keeps the workspace-root address empty (the editor reads an empty path as its home state)', () => {
+    const paramsOf = captureParamsOf('/home/me/proj')
+    expect(paramsOf(infoOf('dsh-resource://file/session/s1/'))).toEqual({ path: '' })
+  })
+
+  it('passes a relative path through when the session cwd is not known yet', () => {
+    // The EditorHost fallback (resolveSidebarPath against the LIVE scope cwd)
+    // covers this window; paramsOf must not invent a root.
+    const paramsOf = captureParamsOf(undefined)
+    expect(paramsOf(infoOf('dsh-resource://file/session/s1/workspace/contract/a.html')))
+      .toEqual({ path: 'workspace/contract/a.html' })
+  })
+
+  it('returns undefined for a non-file address', () => {
+    const paramsOf = captureParamsOf('/home/me/proj')
+    expect(paramsOf(infoOf('sidebar://editor'))).toBeUndefined()
+  })
+})
+
 describe('NativeTabBody full-height host wrapper', () => {
   it('renders the descriptor component inside the [data-dsh-native-tab-host] wrapper', () => {
     // DSH's native tab body host (`.paneBody`) is a BLOCK scroller with a

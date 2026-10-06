@@ -24,6 +24,7 @@
  */
 import type { Context } from '../../context-types.ts'
 import { t } from '../locales.ts'
+import { resolveSidebarPath } from '../paths.ts'
 import { parseFileAddress } from '../resource-address.ts'
 import type { BetterSidebarService, TabDescriptor } from '../service.ts'
 import type { SidebarStore } from '../state.ts'
@@ -207,7 +208,19 @@ export function registerNativeSurface(deps: NativeSurfaceDeps): () => void {
 
     const fileParamsOf = (info: NativeTabInfo): NativeTabParams | undefined => {
       const address = parseFileAddress(info.tab.contentId)
-      return address === undefined ? undefined : { path: address.path }
+      if (address === undefined) return undefined
+      // A session-scoped address may spell its path RELATIVE to the session's
+      // workspace root (a deliverables card opens the path exactly as the
+      // `present` tool stored it). The editor's URL-routed previews
+      // (/sidebar/html, the media route) assume an ABSOLUTE path — their
+      // decoders re-root a relative one at '/', turning 'workspace/a.html'
+      // into the ENOENT '/workspace/a.html' — so resolve it against the
+      // session cwd here, at the tab's entry point. The workspace root
+      // itself ('') must stay empty: the editor reads an empty path as its
+      // home/explorer state, not as the cwd.
+      if (address.scope !== 'session' || address.path === '') return { path: address.path }
+      const cwd = ctx.sessions.list.getSnapshot().byId[address.sessionId]?.cwd
+      return { path: resolveSidebarPath(cwd, address.path) }
     }
     const fileSessionIdOf = (info: NativeTabInfo): string | undefined => {
       const address = parseFileAddress(info.tab.contentId)
