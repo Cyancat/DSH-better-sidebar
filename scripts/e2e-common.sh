@@ -81,14 +81,15 @@ e2e_check_dsh_version() {
 }
 
 # ── tarball 解析 ─────────────────────────────────────────────────────────────
-# TARBALL 已显式给出时原样使用；否则从仓库根 glob 里选。多个候选时取 mtime
-# 最新——`ls | head -1` 的字典序会拿到旧版本号的历史 tarball，把冒烟挂到
-# 过期产物上。未找到候选时返回非零，由调用方按各自文案 die。
+# TARBALL 已显式给出时原样使用；否则从 output/ 与仓库根的 glob 里选（制品
+# 统一归置 output/，根目录的历史遗留也认）。多个候选时取 mtime 最新——
+# `ls | head -1` 的字典序会拿到旧版本号的历史 tarball，把冒烟挂到过期
+# 产物上。未找到候选时返回非零，由调用方按各自文案 die。
 e2e_resolve_tarball() {
   if [ -z "${TARBALL:-}" ]; then
-    TARBALL="$(ls -t "$ROOT"/dsh-better-sidebar-*.tgz 2>/dev/null | head -1 || true)"
+    TARBALL="$(ls -t "$ROOT"/output/dsh-better-sidebar-*.tgz "$ROOT"/dsh-better-sidebar-*.tgz 2>/dev/null | head -1 || true)"
     local count
-    count="$(ls "$ROOT"/dsh-better-sidebar-*.tgz 2>/dev/null | wc -l | tr -d ' ' || true)"
+    count="$(ls "$ROOT"/output/dsh-better-sidebar-*.tgz "$ROOT"/dsh-better-sidebar-*.tgz 2>/dev/null | wc -l | tr -d ' ' || true)"
     [ "$count" -le 1 ] || warn "发现 $count 个 tarball，按 mtime 选用最新：$(basename "$TARBALL")（建议清理其余）"
   fi
   [ -n "$TARBALL" ] && [ -f "$TARBALL" ]
