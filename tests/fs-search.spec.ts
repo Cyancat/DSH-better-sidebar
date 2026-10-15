@@ -1,10 +1,12 @@
 /**
  * fs-search: the host's recursive file-name search behind the editor side
  * panel's search box. Matches are case-insensitive name substrings, reported
- * RELATIVE to the root ('/'-separated); noise directories (`.git`,
- * `node_modules`, build caches) are skipped, symlinked directories are
- * never descended (cycle safety), and the maxMatches/maxVisited budgets
- * stop a runaway walk with `truncated: true`.
+ * RELATIVE to the root ('/'-separated) and flagged with their directory-ness
+ * (the client reveals directory hits in the tree instead of opening them as
+ * files); noise directories (`.git`, `node_modules`, build caches) are
+ * skipped, symlinked directories are never descended (cycle safety), and
+ * the maxMatches/maxVisited budgets stop a runaway walk with
+ * `truncated: true`.
  */
 import { describe, expect, it } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -49,14 +51,17 @@ describe('fs-search', () => {
     const dir = makeFixture()
     try {
       const result = await searchFiles(dir, 'util')
-      expect(result).toEqual({ matches: ['src/util.ts'], truncated: false })
+      expect(result).toEqual({ matches: [{ path: 'src/util.ts', isDir: false }], truncated: false })
       // A multi-level match list is sorted and relative (never absolute).
       const md = await searchFiles(dir, '.md')
       expect(md.truncated).toBe(false)
-      expect(md.matches).toEqual(['README.md', 'docs/guide.md'])
+      expect(md.matches).toEqual([
+        { path: 'README.md', isDir: false },
+        { path: 'docs/guide.md', isDir: false },
+      ])
       for (const match of md.matches) {
-        expect(match.startsWith(dir)).toBe(false)
-        expect(match).not.toContain('\\')
+        expect(match.path.startsWith(dir)).toBe(false)
+        expect(match.path).not.toContain('\\')
       }
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -66,10 +71,30 @@ describe('fs-search', () => {
   it('matches case-insensitively on the entry name', async () => {
     const dir = makeFixture()
     try {
-      expect((await searchFiles(dir, 'index.ts')).matches).toEqual(['src/Index.TS'])
-      expect((await searchFiles(dir, 'INDEX.TS')).matches).toEqual(['src/Index.TS'])
-      // Directory names match too (the client can hint where matches live).
-      expect((await searchFiles(dir, 'SRC')).matches).toEqual(['src'])
+      expect((await searchFiles(dir, 'index.ts')).matches).toEqual([{ path: 'src/Index.TS', isDir: false }])
+      expect((await searchFiles(dir, 'INDEX.TS')).matches).toEqual([{ path: 'src/Index.TS', isDir: false }])
+      // Directory names match too — flagged so the client reveals them in
+      // the tree instead of opening them as files.
+      expect((await searchFiles(dir, 'SRC')).matches).toEqual([{ path: 'src', isDir: true }])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('flags files and directories in a mixed hit set', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-sidebar-search-mixed-'))
+    try {
+      mkdirSync(join(dir, 'app', 'app-data'), { recursive: true })
+      writeFileSync(join(dir, 'app', 'app.ts'), 'code')
+      writeFileSync(join(dir, 'app', 'app-data', 'app.json'), 'data')
+      const result = await searchFiles(dir, 'app')
+      expect(result.truncated).toBe(false)
+      expect(result.matches).toEqual([
+        { path: 'app', isDir: true },
+        { path: 'app/app-data', isDir: true },
+        { path: 'app/app-data/app.json', isDir: false },
+        { path: 'app/app.ts', isDir: false },
+      ])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -79,7 +104,7 @@ describe('fs-search', () => {
     const dir = makeFixture()
     try {
       // 'readme' would hit .git/objects/readme-pack if the walk entered .git.
-      expect((await searchFiles(dir, 'readme')).matches).toEqual(['README.md'])
+      expect((await searchFiles(dir, 'readme')).matches).toEqual([{ path: 'README.md', isDir: false }])
       expect((await searchFiles(dir, 'config')).matches).toEqual([])
       expect((await searchFiles(dir, '.git')).matches).toEqual([])
     } finally {
@@ -97,10 +122,10 @@ describe('fs-search', () => {
       writeFileSync(join(dir, 'web', 'app.ts'), 'src')
       // A match hidden behind node_modules / dist must not appear; project
       // files after those forests must still be reachable within budget.
-      expect((await searchFiles(dir, 'guide')).matches).toEqual(['docs/guide.md'])
+      expect((await searchFiles(dir, 'guide')).matches).toEqual([{ path: 'docs/guide.md', isDir: false }])
       expect((await searchFiles(dir, 'left-pad')).matches).toEqual([])
       expect((await searchFiles(dir, 'bundle')).matches).toEqual([])
-      expect((await searchFiles(dir, 'app.ts')).matches).toEqual(['web/app.ts'])
+      expect((await searchFiles(dir, 'app.ts')).matches).toEqual([{ path: 'web/app.ts', isDir: false }])
       expect((await searchFiles(dir, 'node_modules')).matches).toEqual([])
       expect((await searchFiles(dir, 'dist')).matches).toEqual([])
     } finally {
@@ -126,7 +151,7 @@ describe('fs-search', () => {
       symlinkSync(dir, join(dir, 'loop'))
       symlinkSync(join(dir, 'src'), join(dir, 'src-link'))
       const result = await searchFiles(dir, 'util')
-      expect(result).toEqual({ matches: ['src/util.ts'], truncated: false })
+      expect(result).toEqual({ matches: [{ path: 'src/util.ts', isDir: false }], truncated: false })
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

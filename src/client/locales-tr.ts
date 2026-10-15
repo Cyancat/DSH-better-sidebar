@@ -54,6 +54,7 @@ export const tr: Record<string, string> = {
   editorSearchPlaceholder: 'Dosya adına göre ara…',
   editorSearchNoResults: 'Eşleşen dosya yok',
   editorSearchTruncated: 'Sonuç çok fazla — kısmi liste gösteriliyor',
+  openSearchDirInTree: 'Bu klasörü dosya ağacında aç',
   editorEmptyHint: 'Önizlemeye başlamak için sağdaki dosya ağacından veya yukarıdaki yol girişinden bir dosya seçin',
   openFileNewTab: 'Yeni sekmede aç',
   openFileSide: 'Yana aç',

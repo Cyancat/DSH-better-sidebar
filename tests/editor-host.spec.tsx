@@ -102,6 +102,7 @@ function mountHost(ctx: Context, store: ReturnType<typeof createSidebarStore>, t
       expanded: [],
       revealed: [],
       onToggleDir: () => {},
+      onRevealDir: () => {},
       onReferenceFile: () => {},
     }))
   }
@@ -139,6 +140,7 @@ async function mountHostWithTreeWithCwd(ctx: Context, store: ReturnType<typeof c
       expanded: [],
       revealed: [],
       onToggleDir: () => {},
+      onRevealDir: () => {},
       onReferenceFile: () => {},
     }))
     await Promise.resolve()
@@ -578,6 +580,7 @@ describe('EditorHost "open to the side"', () => {
         expanded: [],
         revealed: [],
         onToggleDir: () => {},
+        onRevealDir: () => {},
         onReferenceFile: () => {},
       }))
       await Promise.resolve()

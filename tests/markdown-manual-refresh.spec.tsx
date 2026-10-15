@@ -79,6 +79,7 @@ function mount(ctx: Context, store: ReturnType<typeof createSidebarStore>, tab: 
     expanded: [],
     revealed: [],
     onToggleDir: () => {},
+    onRevealDir: () => {},
     onReferenceFile: () => {},
   }))
 }

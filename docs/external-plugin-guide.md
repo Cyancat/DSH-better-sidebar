@@ -302,7 +302,11 @@ interface TabComponentProps {
   visible: boolean             // 是否当前激活 tab 且面板打开（不可见时暂停轮询等）
   // 以下由内置 tab 使用，外部 tab 可忽略：
   expanded?: string[]          // 文件树的展开目录集
+  revealed?: string[]          // 文件树的揭示高亮集（「在文件夹中显示」目标）
   onToggleDir?: (path: string) => void
+  // 在文件树中揭示一个目录（搜索面板命中目录时的点击动作）：
+  // 展开祖先与目录本身、高亮并滚动到该行——目录永远不会被当文件打开
+  onRevealDir?: (path: string) => void
   // 在会话 composer 插入一条 @ 引用。isDir=true 为目录：纯文本 `@dir/`，
   // 保留宿主文件夹装饰与补全；false 为文件：走宿主结构化引用 chip
   // （显示 @basename、序列化为完整 @path），宿主拒绝时回退纯文本。

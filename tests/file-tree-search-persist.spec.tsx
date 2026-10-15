@@ -39,7 +39,7 @@ function defaultListing(path: string): Listing {
 
 const { fsTree, fsSearch } = vi.hoisted(() => ({
   fsTree: vi.fn(async (_scope: unknown, path: string) => defaultListing(path)),
-  fsSearch: vi.fn(async () => ({ matches: ['a.ts'], truncated: false })),
+  fsSearch: vi.fn(async () => ({ matches: [{ path: 'a.ts', isDir: false }], truncated: false })),
 }))
 
 vi.mock('../src/client/api.ts', () => ({
@@ -59,7 +59,7 @@ interface Harness {
   unmount: () => void
 }
 
-function mountPanel(): Harness {
+function mountPanel(overrides: { onOpenFile?: (path: string) => void; onRevealDir?: (path: string) => void } = {}): Harness {
   const container = document.createElement('div')
   document.body.append(container)
   const root: Root = createRoot(container)
@@ -71,7 +71,8 @@ function mountPanel(): Harness {
       expanded: [],
       revealed: [],
       onToggle: () => {},
-      onOpenFile: () => {},
+      onOpenFile: overrides.onOpenFile ?? (() => {}),
+      onRevealDir: overrides.onRevealDir ?? (() => {}),
       onReferenceFile: () => {},
     }))
   })
@@ -118,7 +119,8 @@ afterEach(() => {
   document.body.innerHTML = ''
   fsTree.mockReset()
   fsTree.mockImplementation(async (_scope: unknown, path: string) => defaultListing(path))
-  fsSearch.mockClear()
+  fsSearch.mockReset()
+  fsSearch.mockImplementation(async () => ({ matches: [{ path: 'a.ts', isDir: false }], truncated: false }))
 })
 
 describe('TreePanel search keeps the tree mounted', () => {
@@ -143,6 +145,55 @@ describe('TreePanel search keeps the tree mounted', () => {
     expect(fsTree).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('TreePanel search result clicks', () => {
+  it('opens a FILE hit through onOpenFile (cwd-resolved absolute path)', async () => {
+    const onOpenFile = vi.fn()
+    const onRevealDir = vi.fn()
+    fsSearch.mockImplementation(async () => ({
+      matches: [{ path: 'src/util.ts', isDir: false }],
+      truncated: false,
+    }))
+    harness = mountPanel({ onOpenFile, onRevealDir })
+    await act(async () => {})
+    await search(harness.container, 'util')
+
+    const row = [...resultsBody(harness.container).querySelectorAll('button')]
+      .find(el => el.textContent === 'src/util.ts')!
+    await act(async () => { row.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(onOpenFile).toHaveBeenCalledWith('/tmp/src/util.ts')
+    expect(onRevealDir).not.toHaveBeenCalled()
+  })
+
+  it('reveals a DIRECTORY hit in the tree instead of opening it as a file', async () => {
+    const onOpenFile = vi.fn()
+    const onRevealDir = vi.fn()
+    fsSearch.mockImplementation(async () => ({
+      matches: [{ path: 'src/deep', isDir: true }],
+      truncated: false,
+    }))
+    harness = mountPanel({ onOpenFile, onRevealDir })
+    await act(async () => {})
+    await search(harness.container, 'deep')
+    expect(treeBody(harness.container).hasAttribute('hidden')).toBe(true)
+
+    const row = [...resultsBody(harness.container).querySelectorAll('button')]
+      .find(el => el.textContent === 'src/deep')!
+    await act(async () => { row.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+
+    // The directory goes to the reveal callback with its absolute path,
+    // never to the file open path (that read fails with "is a directory").
+    expect(onRevealDir).toHaveBeenCalledWith('/tmp/src/deep')
+    expect(onOpenFile).not.toHaveBeenCalled()
+    // The query cleared, so the parked tree comes back on screen for the
+    // reveal (and the results panel parks again).
+    const input = harness.container.querySelector<HTMLInputElement>('input[class*="editorSearchInput"]')!
+    expect(input.value).toBe('')
+    expect(treeBody(harness.container).hasAttribute('hidden')).toBe(false)
+    expect(resultsBody(harness.container).hasAttribute('hidden')).toBe(true)
+  })
+})
+
 
 describe('TreePanel refresh and truncated levels', () => {
   it('drops a level response that lands after the cache was wiped', async () => {

@@ -1331,6 +1331,21 @@ body[data-dsh-sidebar-dragging] .bottomPanel {
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+/* A directory hit in the search panel: the folder glyph marks the row's
+ * different action (reveal in the tree, never "open as file"). Colors stay
+ * on the row's inherited label token (currentColor). */
+.editorSearchResultDir {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.editorSearchResultDir > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .editorStatus {
   font: var(--dsw-font-xxxs-11);
   color: var(--dsw-alias-label-tertiary);

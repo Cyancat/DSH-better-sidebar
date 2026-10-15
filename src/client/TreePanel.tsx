@@ -20,7 +20,7 @@
  */
 import { useEffect, useRef, useState, type InputHTMLAttributes } from 'react'
 import clsx from 'clsx'
-import { IconFolderOpenRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconFolderCloseRegular, IconFolderOpenRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { api } from './api.ts'
 import type { BetterSidebarService } from './service.ts'
 import type { SidebarStore } from './state.ts'
@@ -57,6 +57,10 @@ export function TreePanel(props: {
   revealed: string[]
   onToggle: (path: string) => void
   onOpenFile: (path: string) => void
+  /** A DIRECTORY search hit: reveal it in the tree (ancestors + the
+   *  directory itself expand, the row highlights and scrolls into view)
+   *  instead of opening it as a file. */
+  onRevealDir: (path: string) => void
   /** File context-menu "open in a new tab" (passed through to FileTree). */
   onOpenFileNewTab?: (path: string) => void
   /** File context-menu "open to the side" (passed through to FileTree). */
@@ -90,13 +94,13 @@ export function TreePanel(props: {
   service?: BetterSidebarService
 }) {
   const {
-    sessionId, cwd, store, expanded, revealed, onToggle, onOpenFile, onOpenFileNewTab, onOpenFileSide,
+    sessionId, cwd, store, expanded, revealed, onToggle, onOpenFile, onRevealDir, onOpenFileNewTab, onOpenFileSide,
     openInApp, openWithTargets, openWithPinned, openWithSsh, onOpenWith, onToggleOpenWithPin,
     openWithShowPluginTargets,
     onReferenceFile, onPathRenamed, onPathDeleted, visible, full, service,
   } = props
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<{ matches: string[]; truncated: boolean } | null>(null)
+  const [results, setResults] = useState<{ matches: { path: string; isDir: boolean }[]; truncated: boolean } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshTick, setRefreshTick] = useState(0)
 
@@ -265,15 +269,29 @@ export function TreePanel(props: {
             {error === null && results !== null && results.matches.length === 0 && (
               <div className={css.editorSearchHint}>{t('editorSearchNoResults')}</div>
             )}
-            {error === null && results !== null && results.matches.map(rel => (
+            {error === null && results !== null && results.matches.map(match => (
               <button
-                key={rel}
+                key={match.path}
                 type="button"
-                className={css.editorSearchResult}
-                title={rel}
-                onClick={() => { onOpenFile(resolveSidebarPath(cwd, rel)) }}
+                className={clsx(css.editorSearchResult, match.isDir && css.editorSearchResultDir)}
+                title={match.isDir ? `${match.path} — ${t('openSearchDirInTree')}` : match.path}
+                onClick={() => {
+                  const absolute = resolveSidebarPath(cwd, match.path)
+                  if (match.isDir) {
+                    // A directory is never opened as a file (the read would
+                    // fail with "is a directory"): reveal it in the tree —
+                    // the ancestors and the directory itself expand, the row
+                    // highlights and scrolls into view. The query clears so
+                    // the parked tree comes back on screen.
+                    setQuery('')
+                    onRevealDir(absolute)
+                    return
+                  }
+                  onOpenFile(absolute)
+                }}
               >
-                {rel}
+                {match.isDir && <IconFolderCloseRegular size={14} />}
+                {match.isDir ? <span>{match.path}</span> : match.path}
               </button>
             ))}
             {error === null && results?.truncated === true && (

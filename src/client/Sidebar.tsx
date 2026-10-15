@@ -32,7 +32,7 @@ import type { Context } from '../context-types.ts'
 import { referenceInChat as referenceInChatShared } from './reference-in-chat.ts'
 import {
   BOTTOM_MIN, CONVERSATION_MIN,
-  leafWithTab, moveTab, moveTabToEdge, openDiffTab, resizeSplitIn,
+  leafWithTab, moveTab, moveTabToEdge, openDiffTab, resizeSplitIn, revealDirectories,
   setBottomHeight, toggleBottomPanel, toggleExpanded,
   type DropZone, type SidebarStore, type SidebarTab,
 } from './state.ts'
@@ -633,6 +633,7 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
         expanded={state.expanded}
         revealed={state.revealed ?? []}
         onToggleDir={(path) => { store.reduce(s => toggleExpanded(s, path)) }}
+        onRevealDir={(path) => { store.reduce(s => revealDirectories(s, cwd, [path])) }}
         onReferenceFile={referenceInChat}
         ctx={ctx}
         store={store}

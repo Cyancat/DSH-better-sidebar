@@ -93,7 +93,7 @@ function setup(initialMode: 'preview' | 'edit' = 'preview', dirty = false): {
 function mount(ctx: Context, tab: () => SidebarTab): { container: HTMLDivElement; unmount: () => void } {
   return renderRoot(createElement(EditorHost, {
     ctx, store: ctx.betterSidebar as never, scope: { sessionId: 'editor-home-session' },
-    tab: tab(), expanded: [], revealed: [], onToggleDir: () => {}, onReferenceFile: () => {},
+    tab: tab(), expanded: [], revealed: [], onToggleDir: () => {}, onRevealDir: () => {}, onReferenceFile: () => {},
   }))
 }
 

@@ -3,7 +3,7 @@ import {
   activateTab, allLeaves, BOTTOM_DEFAULT, BOTTOM_MIN, closeTab, CONVERSATION_MIN, createSidebarStore,
   insertLeafAt, makeDefaultState, moveTab, moveTabToEdge, openDiffTab,
   openTabInBottomPane, patchTab, resizeSplit,
-  resizeSplitIn, revealPaths, sanitizeState, setBottomHeight,
+  resizeSplitIn, revealDirectories, revealPaths, sanitizeState, setBottomHeight,
   splitPane, tabOpenIn, toggleBottomPanel, toggleExpanded,
   type SidebarState, type SidebarTab, type SplitNode,
 } from '../src/client/state.ts'
@@ -723,6 +723,40 @@ describe('revealPaths (show in folder)', () => {
   it('resolves nothing to the same reference (no churn)', () => {
     const base = makeDefaultState()
     expect(revealPaths(base, '/w', [])).toBe(base)
+  })
+})
+
+describe('revealDirectories (search-hit folder open)', () => {
+  it('expands the ancestors AND the directory target itself', () => {
+    const base = makeDefaultState()
+    const next = revealDirectories(base, '/w/src', ['/w/src/sub/deep'])
+    expect(next.revealed).toEqual(['/w/src/sub/deep'])
+    expect(next.expanded).toContain('/w/src/sub')
+    // The difference from revealPaths: the target dir is OPENED too.
+    expect(next.expanded).toContain('/w/src/sub/deep')
+    expect(next.expanded).not.toContain('/w/src')
+  })
+
+  it('is idempotent on a repeat reveal of an already-expanded directory', () => {
+    const base = makeDefaultState()
+    const once = revealDirectories(base, '/w/src', ['/w/src/sub'])
+    const twice = revealDirectories(once, '/w/src', ['/w/src/sub'])
+    // Set semantics: no duplicated expansion entries on the second pass.
+    expect(twice.expanded.filter(path => path === '/w/src/sub')).toHaveLength(1)
+    expect(twice.revealed).toEqual(['/w/src/sub'])
+  })
+
+  it('keeps a Windows drive-letter root and a UNC prefix', () => {
+    const drive = revealDirectories(makeDefaultState(), 'C:\\work', ['C:\\work\\src'])
+    expect(drive.expanded).toContain('C:\\work\\src')
+    const unc = revealDirectories(makeDefaultState(), '\\\\server\\share', ['\\\\server\\share\\sub'])
+    expect(unc.expanded).toContain('\\\\server\\share\\sub')
+  })
+
+  it('resolves nothing to the same reference (no churn)', () => {
+    const base = makeDefaultState()
+    expect(revealDirectories(base, '/w', [])).toBe(base)
+    expect(revealDirectories(base, '/w', [''])).toBe(base)
   })
 })
 

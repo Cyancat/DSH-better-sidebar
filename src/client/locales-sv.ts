@@ -37,6 +37,7 @@ export const sv: Record<string, string> = {
   editorSearchPlaceholder: 'Sök filer efter namn…',
   editorSearchNoResults: 'Inga matchande filer',
   editorSearchTruncated: 'För många resultat — visar en delvis lista',
+  openSearchDirInTree: 'Öppna den här mappen i filträdet',
   editorEmptyHint: 'Välj en fil från trädpanelen eller sökvägsinmatningen ovan för att börja förhandsgranska',
   openFileNewTab: 'Öppna i ny flik',
   openFileSide: 'Öppna vid sidan',

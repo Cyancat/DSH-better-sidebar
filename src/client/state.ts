@@ -508,6 +508,58 @@ export function toggleExpanded(state: SidebarState, path: string): SidebarState 
   return { ...state, expanded }
 }
 
+/** One reveal target: an absolute path plus whether the target ITSELF is a
+ *  directory to expand (`expandSelf`) rather than a file to merely show. */
+export interface RevealTarget {
+  path: string
+  expandSelf: boolean
+}
+
+/** What a reveal computes: the next expanded set (ancestors, plus each
+ *  directory target itself) and the highlight set. */
+export interface RevealPlan {
+  expanded: string[]
+  revealed: string[]
+}
+
+/**
+ * Reveal path computation shared by the store reducer and the native tab
+ * records: expand every ancestor directory between the explorer root and
+ * each target (so the lazy tree actually shows the row), plus the target
+ * itself when it is a directory being opened (`expandSelf`), and record the
+ * targets for highlighting. Pure: the caller merges the result into its own
+ * state shape.
+ * @param cwd - the explorer's root (session working directory).
+ * @param baseExpanded - the expanded set the plan builds on.
+ * @param targets - absolute paths to highlight (parent dirs are expanded).
+ */
+export function computeReveal(cwd: string | undefined, baseExpanded: readonly string[], targets: readonly RevealTarget[]): RevealPlan {
+  const expanded = new Set(baseExpanded)
+  const revealed: string[] = []
+  const rootParts = (cwd ?? '').split(/[\\/]+/).filter(part => part !== '')
+  for (const target of targets) {
+    const file = target.path
+    if (typeof file !== 'string' || file === '') continue
+    revealed.push(file)
+    const parts = file.split(/[\\/]+/).filter(part => part !== '' && part !== '.')
+    const separator = file.includes('\\') ? '\\' : '/'
+    // Keep the original leading separator(s) when rebuilding ancestor dirs:
+    // FileTree matches expansion against ABSOLUTE paths, so dropping the
+    // root (POSIX `/w/src` → `w/src`) or a UNC prefix (`\\server\share`)
+    // would leave every ancestor collapsed and the row unreachable.
+    const prefix = file.startsWith('/') ? '/' : file.startsWith('\\\\') ? '\\\\' : file.startsWith('\\') ? '\\' : ''
+    for (let i = rootParts.length; i < parts.length - 1; i++) {
+      expanded.add(prefix + parts.slice(0, i + 1).join(separator))
+    }
+    // A directory target is OPENED, not just shown: expand the target itself
+    // so its children are visible without a second click.
+    if (target.expandSelf && parts.length > rootParts.length) {
+      expanded.add(prefix + parts.join(separator))
+    }
+  }
+  return { expanded: [...expanded], revealed }
+}
+
 /**
  * Reveal files in the explorer: expand every ancestor directory between the
  * explorer root and each file (so the lazy tree actually shows the row) and
@@ -519,25 +571,25 @@ export function toggleExpanded(state: SidebarState, path: string): SidebarState 
  * @returns the next state, or the same reference when nothing is revealed.
  */
 export function revealPaths(state: SidebarState, cwd: string | undefined, files: readonly string[]): SidebarState {
-  const expanded = new Set(state.expanded)
-  const revealed: string[] = []
-  const rootParts = (cwd ?? '').split(/[\\/]+/).filter(part => part !== '')
-  for (const file of files) {
-    if (typeof file !== 'string' || file === '') continue
-    revealed.push(file)
-    const parts = file.split(/[\\/]+/).filter(part => part !== '' && part !== '.')
-    const separator = file.includes('\\') ? '\\' : '/'
-    // Keep the original leading separator(s) when rebuilding ancestor dirs:
-    // FileTree matches expansion against ABSOLUTE paths, so dropping the
-    // root (POSIX `/w/src` �W `w/src`) or a UNC prefix (`\\server\share`)
-    // would leave every ancestor collapsed and the row unreachable.
-    const prefix = file.startsWith('/') ? '/' : file.startsWith('\\\\') ? '\\\\' : file.startsWith('\\') ? '\\' : ''
-    for (let i = rootParts.length; i < parts.length - 1; i++) {
-      expanded.add(prefix + parts.slice(0, i + 1).join(separator))
-    }
-  }
-  if (revealed.length === 0) return state
-  return { ...state, expanded: [...expanded], revealed }
+  const plan = computeReveal(cwd, state.expanded, files.map(path => ({ path, expandSelf: false })))
+  if (plan.revealed.length === 0) return state
+  return { ...state, expanded: plan.expanded, revealed: plan.revealed }
+}
+
+/**
+ * Reveal DIRECTORIES in the explorer (a directory hit in the search panel):
+ * like {@link revealPaths} but the target itself is expanded too — the
+ * gesture is "open this folder in the tree", not "show me where it is".
+ * @param state - current sidebar state.
+ * @param cwd - the explorer's root (session working directory).
+ * @param dirs - absolute directory paths to open (themselves included in
+ *  the expanded set).
+ * @returns the next state, or the same reference when nothing is revealed.
+ */
+export function revealDirectories(state: SidebarState, cwd: string | undefined, dirs: readonly string[]): SidebarState {
+  const plan = computeReveal(cwd, state.expanded, dirs.map(path => ({ path, expandSelf: true })))
+  if (plan.revealed.length === 0) return state
+  return { ...state, expanded: plan.expanded, revealed: plan.revealed }
 }
 
 /** Adjust one split divider: `i` is the left/top child index, delta in fractions. */

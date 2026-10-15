@@ -55,6 +55,7 @@ export const ar: Record<string, string> = {
   editorSearchPlaceholder: 'البحث في الملفات بالاسم…',
   editorSearchNoResults: 'لا ملفات مطابقة',
   editorSearchTruncated: 'نتائج كثيرة جداً — عرض قائمة جزئية',
+  openSearchDirInTree: 'فتح هذا المجلد في شجرة الملفات',
   editorEmptyHint: 'اختر ملفاً من لوحة الشجرة أو من حقل المسار بالأعلى لبدء المعاينة',
   openFileNewTab: 'فتح في تبويب جديد',
   openFileSide: 'فتح إلى الجانب',

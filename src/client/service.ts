@@ -152,6 +152,13 @@ export interface TabComponentProps {
   /** The explorer's reveal-highlight set (ExplorerView; "Show in folder" targets). */
   revealed?: string[]
   onToggleDir?: (path: string) => void
+  /**
+   * Reveal a DIRECTORY in the explorer (a directory hit in the files
+   * panel's search box): expand its ancestors and the directory itself,
+   * highlight it and scroll it into view — a directory is never opened as
+   * a file.
+   */
+  onRevealDir?: (path: string) => void
   onReferenceFile?: (path: string, isDir: boolean) => void
   onOpenFile?: (path: string) => void
   onOpenDiff?: (tab: SidebarTab) => void

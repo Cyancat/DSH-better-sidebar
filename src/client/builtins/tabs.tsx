@@ -85,7 +85,7 @@ export function builtinTabs(): readonly TabDescriptor[] {
           <OpenWithSettings pluginSettings={pluginSettings} updatePluginSetting={updatePluginSetting} />
         ),
       },
-      component: ({ ctx, store, scope, tab, visible, expanded, revealed, onToggleDir, onReferenceFile }) => (
+      component: ({ ctx, store, scope, tab, visible, expanded, revealed, onToggleDir, onRevealDir, onReferenceFile }) => (
         <EditorHost
           ctx={ctx}
           store={store}
@@ -95,6 +95,7 @@ export function builtinTabs(): readonly TabDescriptor[] {
           expanded={expanded ?? []}
           revealed={revealed ?? []}
           onToggleDir={onToggleDir ?? (() => { /* no-op */ })}
+          onRevealDir={onRevealDir ?? (() => { /* no-op */ })}
           onReferenceFile={onReferenceFile ?? (() => { /* no-op */ })}
         />
       ),

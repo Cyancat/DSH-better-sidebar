@@ -107,9 +107,11 @@ export function EditorHost(props: {
   expanded: string[]
   revealed: string[]
   onToggleDir: (path: string) => void
+  /** A directory search hit reveals in the tree instead of opening as a file. */
+  onRevealDir: (path: string) => void
   onReferenceFile: (path: string, isDir: boolean) => void
 }) {
-  const { ctx, store, scope, tab, expanded, revealed, onToggleDir, onReferenceFile } = props
+  const { ctx, store, scope, tab, expanded, revealed, onToggleDir, onRevealDir, onReferenceFile } = props
   const visible = props.visible !== false
   // Fallback absolutization: a relative path can still land in an editor
   // tab (a native open whose session cwd was not in the list yet when its
@@ -487,6 +489,7 @@ export function EditorHost(props: {
           expanded={expanded}
           revealed={revealed}
           onToggle={onToggleDir}
+          onRevealDir={onRevealDir}
           onOpenFile={openFile}
           onOpenFileNewTab={openFileNewTab}
           onOpenFileSide={openFileSide}
@@ -641,6 +644,7 @@ export function EditorHost(props: {
               expanded={expanded}
               revealed={revealed}
               onToggle={onToggleDir}
+              onRevealDir={onRevealDir}
               onOpenFile={openFile}
               onOpenFileNewTab={openFileNewTab}
               onOpenFileSide={openFileSide}

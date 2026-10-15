@@ -46,6 +46,7 @@ export const ko: Record<string, string> = {
   editorSearchPlaceholder: '파일 이름으로 검색…',
   editorSearchNoResults: '일치하는 파일 없음',
   editorSearchTruncated: '결과가 너무 많아 일부 일치 항목만 표시합니다',
+  openSearchDirInTree: '파일 트리에서 이 폴더 열기',
   editorEmptyHint: '오른쪽 파일 트리나 위쪽 경로 입력란에서 파일을 선택해 미리보기를 시작하세요',
   openFileNewTab: '새 Tab으로 열기',
   openFileSide: '측면에 열기',

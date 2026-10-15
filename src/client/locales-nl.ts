@@ -52,6 +52,7 @@ export const nl: Record<string, string> = {
   editorSearchPlaceholder: 'Zoek op bestandsnaam…',
   editorSearchNoResults: 'Geen overeenkomende bestanden',
   editorSearchTruncated: 'Te veel resultaten — een gedeeltelijke lijst wordt getoond',
+  openSearchDirInTree: 'Deze map in de bestandsboom openen',
   editorEmptyHint: 'Kies een bestand uit het boompaneel of het pad-invoerveld hierboven om te beginnen met previewen',
   openFileNewTab: 'Openen in nieuw tabblad',
   openFileSide: 'Openen aan de zijkant',

@@ -15,10 +15,18 @@
 import { opendir } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 
-/** One search: the relative paths of the matching entries (dirs included so
- *  the client can hint where matches live) plus the truncation flag. */
+/** One search hit: the path RELATIVE to the root ('/'-separated) plus
+ *  whether the entry is a directory (the client reveals directories in the
+ *  tree instead of opening them as files). */
+export interface FsSearchMatch {
+  path: string
+  isDir: boolean
+}
+
+/** One search: the matching entries (dirs included so the client can reveal
+ *  them in the tree) plus the truncation flag. */
 export interface FsSearchResult {
-  matches: string[]
+  matches: FsSearchMatch[]
   truncated: boolean
 }
 
@@ -67,8 +75,9 @@ const SEARCH_SKIP_DIRS = new Set([
  * @param query - the name substring; empty matches nothing.
  * @param opts - budget overrides (tests).
  * @returns the matching paths RELATIVE to `root` ('/'-separated), sorted,
- *  plus whether a budget cut the walk short. An unreadable level is skipped
- *  (permission errors never fail the whole search).
+ *  each flagged with its directory-ness, plus whether a budget cut the walk
+ *  short. An unreadable level is skipped (permission errors never fail the
+ *  whole search).
  */
 export async function searchFiles(root: string, query: string, opts: FsSearchOptions = {}): Promise<FsSearchResult> {
   const needle = query.trim().toLowerCase()
@@ -76,7 +85,7 @@ export async function searchFiles(root: string, query: string, opts: FsSearchOpt
   const maxMatches = opts.maxMatches ?? DEFAULT_MAX_MATCHES
   const maxVisited = opts.maxVisited ?? DEFAULT_MAX_VISITED
 
-  const matches: string[] = []
+  const matches: FsSearchMatch[] = []
   let visited = 0
   let truncated = false
 
@@ -93,7 +102,7 @@ export async function searchFiles(root: string, query: string, opts: FsSearchOpt
       // Dependency / VCS / build-output forests: never matched, never descended.
       if (dirent.isDirectory() && SEARCH_SKIP_DIRS.has(dirent.name.toLowerCase())) continue
       if (dirent.name.toLowerCase().includes(needle)) {
-        matches.push(join(relative(root, dir), dirent.name))
+        matches.push({ path: join(relative(root, dir), dirent.name), isDir: dirent.isDirectory() })
         if (matches.length >= maxMatches) {
           truncated = true
           return
@@ -109,5 +118,10 @@ export async function searchFiles(root: string, query: string, opts: FsSearchOpt
   }
   await walk(root)
   // '/' separators on every platform: the client joins onto the cwd itself.
-  return { matches: matches.sort().map(path => path.split(sep).join('/')), truncated }
+  return {
+    matches: matches
+      .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+      .map(match => ({ ...match, path: match.path.split(sep).join('/') })),
+    truncated,
+  }
 }

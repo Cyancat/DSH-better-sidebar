@@ -22,6 +22,9 @@ import css from '../sidebar.module.css'
  *  pane; sessionId/cwd cover onReferenceFile). */
 interface TabContentProps extends TabContentMemoKey {
   onToggleDir: (path: string) => void
+  /** Reveal a directory in the tree (a directory hit in the search panel);
+   *  a runtime callback like onToggleDir — kept out of the memo key. */
+  onRevealDir: (path: string) => void
   onReferenceFile: (path: string, isDir: boolean) => void
   ctx: Context
   store: SidebarStore
@@ -33,7 +36,7 @@ interface TabContentProps extends TabContentMemoKey {
 
 /** Render the content of one tab (dispatched by type). */
 export const TabContent = memo(function TabContent(props: TabContentProps) {
-  const { tab, sessionId, cwd, expanded, revealed, onToggleDir, onReferenceFile, ctx, store, visible, onSubagentJump, onOpenDiff } = props
+  const { tab, sessionId, cwd, expanded, revealed, onToggleDir, onRevealDir, onReferenceFile, ctx, store, visible, onSubagentJump, onOpenDiff } = props
   const scope = { sessionId, cwd }
   const descriptor = ctx.get('betterSidebar')?.getTab(tab.type)
   if (descriptor === undefined) {
@@ -44,7 +47,7 @@ export const TabContent = memo(function TabContent(props: TabContentProps) {
     { className: css.tabBoundaryError },
     createElement(descriptor.component, {
       ctx, store, scope, tab, visible, expanded, revealed,
-      onToggleDir, onReferenceFile, onOpenDiff, onSubagentJump,
+      onToggleDir, onRevealDir, onReferenceFile, onOpenDiff, onSubagentJump,
     }),
   )
 }, tabContentCompare)

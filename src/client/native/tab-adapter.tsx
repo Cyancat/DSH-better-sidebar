@@ -31,6 +31,7 @@ import { OrphanedTab } from '../OrphanedTab.tsx'
 import { referenceInChat } from '../reference-in-chat.ts'
 import type { BetterSidebarService } from '../service.ts'
 import type { SidebarStore, SidebarTab, TabType } from '../state.ts'
+import { computeReveal } from '../state.ts'
 import css from '../sidebar.module.css'
 
 /** The chip glyph's size: the tab strip's own icon scale. */
@@ -118,6 +119,12 @@ export interface NativeTabRecords {
   drop(id: string): void
   /** Toggle one directory in a record's expansion set. */
   toggleExpanded(id: string, path: string): void
+  /**
+   * Reveal directories in a record's explorer (a directory hit in the
+   * search panel): expand the ancestors AND each target itself, and set the
+   * reveal-highlight set (the tree scrolls the highlighted row into view).
+   */
+  revealDirs(id: string, cwd: string | undefined, paths: readonly string[]): void
   /** Mint the next instance number of a kind (titles like "Terminal 2"). */
   nextInstance(kind: string): number
   /** A per-record version for `useSyncExternalStore`. */
@@ -197,6 +204,13 @@ export function createNativeTabRecords(): NativeTabRecords {
         ? entry.expanded.filter(candidate => candidate !== path)
         : [...entry.expanded, path]
       put(id, { ...entry, expanded })
+    },
+    revealDirs(id, cwd, paths) {
+      const entry = views.get(id)
+      if (entry === undefined) return
+      const plan = computeReveal(cwd, entry.expanded, paths.map(path => ({ path, expandSelf: true })))
+      if (plan.revealed.length === 0) return
+      put(id, { ...entry, expanded: plan.expanded, revealed: plan.revealed })
     },
     nextInstance(kind) {
       const next = (instances.get(kind) ?? 0) + 1
@@ -345,6 +359,7 @@ export function NativeTabBody(props: NativeBodyInjected & NativeBodyFrameworkPro
         expanded: view.expanded,
         revealed: view.revealed,
         onToggleDir: (path: string) => { records.toggleExpanded(nativeTab.id, path) },
+        onRevealDir: (path: string) => { records.revealDirs(nativeTab.id, cwd, [path]) },
         onReferenceFile: (path: string, isDir: boolean) => { referenceInChat(ctx, sessionId, cwd, path, isDir) },
         onOpenDiff: (tab: SidebarTab) => {
           service.openTab({

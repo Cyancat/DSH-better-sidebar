@@ -67,7 +67,7 @@ function setup(tabPath: string): {
 function mount(ctx: Context, tab: () => SidebarTab, cwd: string | undefined) {
   return renderRoot(createElement(EditorHost, {
     ctx, store: ctx.betterSidebar as never, scope: { sessionId: 's1', cwd },
-    tab: tab(), expanded: [], revealed: [], onToggleDir: () => {}, onReferenceFile: () => {},
+    tab: tab(), expanded: [], revealed: [], onToggleDir: () => {}, onRevealDir: () => {}, onReferenceFile: () => {},
   }))
 }
 

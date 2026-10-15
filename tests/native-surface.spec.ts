@@ -56,6 +56,20 @@ describe('createNativeTabRecords', () => {
     expect(records.get('tab-4')?.expanded).toEqual([])
   })
 
+  it('reveals directories per record: ancestors plus the target expand, the highlight set lands', () => {
+    const records = createNativeTabRecords()
+    records.ensure({ id: 'tab-4b', kind: 'editor', title: 'Files', params: undefined, scope })
+    const before = records.versionOf('tab-4b')
+    records.revealDirs('tab-4b', '/work', ['/work/src/deep'])
+    const view = records.get('tab-4b')
+    expect(view?.expanded).toEqual(['/work/src', '/work/src/deep'])
+    expect(view?.revealed).toEqual(['/work/src/deep'])
+    expect(records.versionOf('tab-4b')).toBeGreaterThan(before)
+    // An unknown id is a silent no-op (same contract as toggleExpanded).
+    records.revealDirs('nope', '/work', ['/work/src'])
+    expect(records.get('nope')).toBeUndefined()
+  })
+
   it('notifies subscribers and forgets a dropped record', () => {
     const records = createNativeTabRecords()
     records.ensure({ id: 'tab-5', kind: 'terminal', title: 'Terminal', params: undefined, scope })

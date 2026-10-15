@@ -69,6 +69,7 @@ export const zhHK: Record<string, string> = {
   editorSearchPlaceholder: '按檔案名稱搜尋…',
   editorSearchNoResults: '無匹配檔案',
   editorSearchTruncated: '結果過多，僅顯示部分匹配',
+  openSearchDirInTree: '在檔案樹中開啟此目錄',
   editorEmptyHint: '從右側檔案樹或上方路徑輸入框選擇檔案開始預覽',
   openFileNewTab: '在新 Tab 中開啟',
   openFileSide: '在側邊開啟',

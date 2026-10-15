@@ -54,6 +54,7 @@ export const vi: Record<string, string> = {
   editorSearchPlaceholder: 'Tìm theo tên tệp…',
   editorSearchNoResults: 'Không có tệp phù hợp',
   editorSearchTruncated: 'Quá nhiều kết quả, chỉ hiển thị một phần',
+  openSearchDirInTree: 'Mở thư mục này trong cây tệp',
   editorEmptyHint: 'Chọn tệp từ cây tệp bên phải hoặc ô nhập đường dẫn phía trên để xem trước',
   openFileNewTab: 'Mở trong Tab mới',
   openFileSide: 'Mở ở bên cạnh',
