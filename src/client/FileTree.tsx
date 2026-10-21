@@ -54,6 +54,8 @@ import {
 import { SiCursor, SiZedindustries } from 'react-icons/si'
 import { VscFolderOpened, VscLinkExternal, VscPin, VscPinned } from 'react-icons/vsc'
 import { api, archiveBuild, archiveDownloadUrl, archiveStatus, downloadUrl, SidebarApiError, type FsEntry, type FsLevel } from './api.ts'
+import { canOpenInBrowser } from './desktop-env.ts'
+import { browserOpenUrl, isBrowserOpenablePath, openBrowserTab } from './open-in-browser.ts'
 import { compactChain, compactLoadTargets } from './file-tree-compact.ts'
 import { DEFAULT_FILE_TREE_SORT, sortEntries, type FileTreeSort } from './file-tree-sort.ts'
 import { FS_TREES_MAX_PATHS } from '../fs-batch.ts'
@@ -1697,6 +1699,21 @@ export function FileTree(props: {
     return []
   }
 
+  /**
+   * "Open in browser" for a row the browser renders natively (PDF only): one
+   * READ-ONLY row, never on a directory, and hidden in the desktop shell —
+   * `canOpenInBrowser()` is the same gate the editor header's button uses.
+   * Kept out of the JSX so the condition (and its zero/one result) is testable.
+   */
+  const openInBrowserEntries = (target: { path: string; isDir: boolean }): MenuEntry[] => {
+    if (target.isDir || !isBrowserOpenablePath(target.path) || !canOpenInBrowser()) return []
+    return [{
+      id: 'open-in-browser',
+      label: t('browserOpenExternal'),
+      icon: <VscLinkExternal size={14} />,
+    }]
+  }
+
   /** Download a file through the host route (raw bytes, binary-safe). */
   const downloadFile = (path: string): void => {
     const url = downloadUrl({ sessionId, cwd }, path)
@@ -1706,6 +1723,16 @@ export function FileTree(props: {
     document.body.appendChild(anchor)
     anchor.click()
     anchor.remove()
+  }
+
+  /**
+   * Hand a browser-renderable file (PDF) to a REAL new browser tab through the
+   * inline media route. The environment gate lives at the menu-item level; this
+   * only launches and reports. No tab is closed: the file's preview tab is the
+   * HOST's, not one this plugin may close.
+   */
+  const openPdfInBrowser = (path: string): void => {
+    if (!openBrowserTab(browserOpenUrl({ sessionId, cwd }, path))) reportOpenFailure(path)
   }
 
   /**
@@ -2312,6 +2339,10 @@ export function FileTree(props: {
           ...(rowMenu?.isDir === false && onOpenFileSide !== undefined
             ? [{ id: 'open-side', label: t('openFileSide'), icon: <IconFolderOpenRegular size={14} /> }]
             : []),
+          // A real browser tab for types the browser renders natively (PDF);
+          // zero rows on every other file, on directories, and in the desktop
+          // shell. Placed after the sidebar escapes, before Download.
+          ...(rowMenu === null ? [] : openInBrowserEntries(rowMenu)),
           // Download applies to files only (the host route refuses directories).
           ...(rowMenu?.isDir === false
             ? [{ id: 'download', label: t('download'), icon: <IconDownloadOutlineRegular size={14} /> }]
@@ -2380,6 +2411,10 @@ export function FileTree(props: {
           }
           if (id === 'archive-selection') {
             downloadArchive([...selected])
+            return
+          }
+          if (id === 'open-in-browser') {
+            openPdfInBrowser(target.path)
             return
           }
           if (id === 'download') {
