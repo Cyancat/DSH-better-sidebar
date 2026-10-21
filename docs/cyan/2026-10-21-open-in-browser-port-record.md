@@ -3,8 +3,8 @@
 - 日期：2026-10-21（实施 2026-10-22）
 - 基线：v0.28.0，DSH 0.2.1-rc.1
 - 源实现：`feat/open-in-browser` / `local/my-prs`（0.18.0 线）的 `18d9b2f`、`4ae61f0`、`c470eb5`、`3285112`；0.24 线移植 `d7cb134`、`6a36422`；0.23 线移植 `3ae1c3b`、`38602c0`
-- 规划：[../cyan/2026-10-21-open-in-browser-port-plan.md](../cyan/2026-10-21-open-in-browser-port-plan.md)（下称「规划」；§10 是 PDF 追加需求）
-- 关联规划：[../cyan/2026-10-22-search-results-context-menu-plan.md](../cyan/2026-10-22-search-results-context-menu-plan.md) §4.1（共享 helper；搜索菜单本身不在本次范围）
+- 规划：[2026-10-21-open-in-browser-port-plan.md](2026-10-21-open-in-browser-port-plan.md)（下称「规划」；§10 是 PDF 追加需求）
+- 共享 helper 的来源：搜索结果右键菜单规划 §4.1（该规划未随本分支提交；本记录只描述 helper 本身，不依赖该文件）
 
 ## 功能
 
@@ -47,7 +47,7 @@
 | 图片的浏览器入口 | 本期不做 | 规划 §D2 / §10.6；`BROWSER_OPENABLE_EXTS` 很容易扩成图片集合，但产品上未确认 |
 | 桌面壳 | 隐藏按钮/菜单项，不做降级 | 无带登录态的系统浏览器 URL；`file://` 或裸 host URL 都会失败或丢失 CSP |
 | `window.confirm` 不可用 | 拒绝（不开不关） | 与 `refreshFile` 的 fail-closed 范式一致 |
-| 新 e2e（新 Tab / CSP） | 本次未加入 `test:mount` lane | 规划 §5.6 / §9 建议但非验收硬要求；已由组件测试、路由 header 测试与真实 Chromium 手测覆盖，PR 需注明未自动化 |
+| 新 e2e | 增加 `tests/e2e/open-in-browser.e2e.ts`（html：真实 Chromium 新 Tab、opaque origin、`noopener`、tab 关闭） | 只有部署层能证明顶层导航不被 401 挡住；PDF 的内置查看器在 headless Chromium 没有 UI，渲染门禁仍靠真机手测 |
 | 版本号 | 词典新增 key 已进 21 份；`CHANGELOG` 先加 `### Unreleased` | 规划 §5.5 二选一 |
 
 ## 测试
@@ -59,6 +59,7 @@
 - `tests/file-tree-open-in-browser.spec.tsx`：PDF 行出现菜单项并打开精确 `mediaUrl()`；普通文件 / 目录不出现；桌面基址隐藏。
 - `tests/base-path.spec.ts`：`canOpenInBrowser()` 的 http(s) / `dsh-app:` / 空 / 非法基址，以及不因注入的 `streamBaseUrl` 而误开。
 - `tests/locales.spec.ts`：21 份词典 key-set（`openBrowserCloseConfirm`，`locales-ja` 有译文）。
+- `tests/e2e/open-in-browser.e2e.ts`（挂载 lane）：真实 Chromium 中 html 行 → header 按钮 → 新 Tab 的 `/sidebar/html/` 文档；脚本运行、`self.origin === 'null'`、`localStorage` 抛错、`window.opener === null`；交接后侧边栏 tab 消失。PDF 行不在 headless 中跑（没有 PDF 查看器 UI），渲染门禁见下。
 
 ## 验证
 
@@ -75,9 +76,19 @@ pnpm build
 pnpm pack && pnpm test:mount
 ```
 
-真实 Chromium 手测（规划 §6.2 的矩阵）：html 新 Tab 渲染、`window.opener === null`、`location.origin === 'null'`；PDF 在 CSP sandbox 下仍由内置查看器渲染；反代前缀；桌面壳不显示入口；markdown / code / jsonl 不显示按钮；dirty 取消/确认；`?download=1` 仍落盘。
+真实 Chromium 手测（规划 §6.2 的矩阵）：html 新 Tab 渲染、`window.opener === null`、`self.origin === 'null'` 且 `localStorage` 访问抛错；PDF 在 CSP sandbox 下仍由内置查看器渲染；反代前缀；桌面壳不显示入口；markdown / code / jsonl 不显示按钮；dirty 取消/确认；`?download=1` 仍落盘。
+
+> **规划中 `location.origin === 'null'` 的断言不成立**：Chromium 在顶层文档上执行 CSP `sandbox` 后，`location.origin` 仍返回 URL 的 http(s) origin（与 iframe 的直觉不同），但 `self.origin` 是 `'null'`、`document.cookie` / `localStorage` 被拒。部署级用例因此断言 `self.origin` 与存储访问，而不是 `location.origin`。
 
 > PDF 顶层 CSP 是上线门禁：若 Chromium 内置 PDF 查看器在 `sandbox` 下不渲染，不要静默去掉 CSP，按规划 §10.4 三选一（专用路由 / 退回宿主预览 / 暂缓入口）并记录。
+
+### 本次验证证据
+
+- `pnpm vitest run`：223 个文件、2702 通过、17 跳过（0 失败）。本地在隔离 `HOME` 下跑，避免沙箱拒绝测试往真实 `~` 写自测目录。
+- `pnpm typecheck`、`pnpm lint`（src / tests / scripts；仓库根 `output/` 是未跟踪的本地目录，CI clean checkout 不存在）、`pnpm check:consumer-types`：通过。
+- `pnpm build`、`pnpm pack`：通过。
+- `pnpm test:mount`：14 通过、3 跳过，含新增的 `tests/e2e/open-in-browser.e2e.ts`。
+- **未自动化的门禁**：PDF 在真实 Chromium 的渲染（headless 无内置 PDF 查看器 UI）。上线前需人工确认；失败时按 §10.4 决策，不是静默移除 CSP。
 
 ## 回滚
 

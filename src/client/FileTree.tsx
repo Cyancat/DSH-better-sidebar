@@ -26,12 +26,13 @@
  * Row actions: hovering a row reveals an @-reference button on the far right
  * (appends `@<relative path>` to the composer draft), and right-click opens a
  * context menu: file rows offer the caller's open escapes (new tab / to the
- * side, only when the callbacks exist), the host's "open in app" section and
- * a download action (the host serves raw bytes, binary-safe); directory rows
- * offer "upload here", "new folder" and "new file" (an inline editor at the
- * top of that level; the two creators are mutually exclusive); every row can
- * copy the relative or absolute path (with a brief
- * "copied" label replacing the button after a successful write).
+ * side, only when the callbacks exist), the host's "open in app" section, an
+ * "open in browser" action for PDFs (a real browser tab; hidden in the desktop
+ * shell — see open-in-browser.ts) and a download action (the host serves raw
+ * bytes, binary-safe); directory rows offer "upload here", "new folder" and
+ * "new file" (an inline editor at the top of that level; the two creators are
+ * mutually exclusive); every row can copy the relative or absolute path (with
+ * a brief "copied" label replacing the button after a successful write).
  *
  * Rows are memoized components (FileRow / DirRow) fed by stable callbacks and
  * per-row booleans, so a copy flash, a drag target or a selection change only

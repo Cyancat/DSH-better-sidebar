@@ -670,7 +670,9 @@ export const api = {
   openExternal,
 }
 
-/** Absolute URL of the media route for one path (images only). */
+/** Absolute URL of the INLINE media route for one path (images in the
+ *  editor, PDFs handed to the browser). Every inline response carries the
+ *  CSP sandbox boundary — see mediaHeadersFor in src/index.ts. */
 export function mediaUrl(scope: SessionScope, path: string): string {
   return fileUrl(scope, path, false)
 }
