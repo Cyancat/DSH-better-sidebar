@@ -95,6 +95,12 @@ const viewer: FileViewerDescriptor = {
     void path; void scope; void signal
     return { rows: [] }
   },
+  // A real browser tab is only offered for types the browser renders natively;
+  // the URL must be page-prefix safe (built by the plugin's hostRouteUrl).
+  browserUrl: (scope: SessionScope, path: string) => {
+    void scope
+    return `https://example.test/sidebar/file?path=${encodeURIComponent(path)}`
+  },
   settings: { pluginToggles: [{ key: 'delimiter', title: 'Delimiter', type: 'text', placeholder: ',' }] },
   component: (props: FileViewerProps) => {
     const { customData, content, size, largeFile, mediaUrl, viewerId, path, title } = props

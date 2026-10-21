@@ -56,3 +56,27 @@ export function hostHttpBase(): string {
   return hostTransportBase()
 }
 
+/**
+ * Whether a REAL browser tab can reach the plugin's http(s) routes — the gate
+ * for "open in browser" (the editor header button and the file tree's PDF
+ * row). False in the desktop shell: it serves the GUI from `dsh-app://app/`,
+ * and Electron's main-window `setWindowOpenHandler` hands ONLY http(s) to
+ * `shell.openExternal` while denying every other scheme, so a `dsh-app://`
+ * popup is a silent no-op. Building plain `http://127.0.0.1:<port>` instead
+ * does not help either: the shell process holds the auth cookie and the system
+ * browser has none, so the new tab is rejected with 401.
+ *
+ * So the entries hide rather than ship a button that cannot do anything.
+ * @returns true only when the page base is a real http(s) URL.
+ */
+export function canOpenInBrowser(): boolean {
+  const base = hostHttpBase()
+  if (base === '') return false
+  try {
+    const protocol = new URL(base).protocol
+    return protocol === 'http:' || protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+

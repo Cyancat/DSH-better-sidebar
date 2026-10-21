@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import './browser-globals.ts'
 import { hostRouteUrl, hostWebSocketUrl } from '../src/client/host-route-url.ts'
 import { archiveDownloadUrl, downloadUrl, htmlUrl, mediaUrl, type SessionScope } from '../src/client/api.ts'
+import { canOpenInBrowser } from '../src/client/desktop-env.ts'
 import { createBetterSidebarService } from '../src/client/service.ts'
 import { createSidebarStore } from '../src/client/state.ts'
 
@@ -161,5 +162,28 @@ describe('the real call sites resolve through the page prefix', () => {
       expect(service.hostRouteUrl('/sidebar/api/fs.read'))
         .toBe('https://host.example.test/dataops/proxy/3080/sidebar/api/fs.read')
     })
+  })
+})
+
+describe('canOpenInBrowser: only real http(s) pages offer a browser tab', () => {
+  it('is true on http and https deployments, reverse-proxy prefix included', async () => {
+    await withPageBase(PROXY, () => { expect(canOpenInBrowser()).toBe(true) })
+    await withPageBase('http://127.0.0.1:3080/', () => { expect(canOpenInBrowser()).toBe(true) })
+  })
+
+  it('is false in the desktop shell and for unusable page bases', async () => {
+    // The Electron shell serves the GUI from dsh-app://app/ and denies every
+    // non-http(s) popup — a button there would be a silent no-op.
+    await withPageBase('dsh-app://app/', () => { expect(canOpenInBrowser()).toBe(false) })
+    await withPageBase('', () => { expect(canOpenInBrowser()).toBe(false) })
+    await withPageBase('not a url', () => { expect(canOpenInBrowser()).toBe(false) })
+  })
+
+  it('ignores the injected transport origin when the page itself is dsh-app', async () => {
+    // hostHttpBase deliberately reads the PAGE base for HTTP routes; the
+    // desktop shell's streamBaseUrl is a raw host origin the system browser
+    // has no auth cookie for, so it must not turn the button on.
+    vi.stubGlobal('__DSH_TRANSPORT__', { streamBaseUrl: 'http://127.0.0.1:4199/' })
+    await withPageBase('dsh-app://app/', () => { expect(canOpenInBrowser()).toBe(false) })
   })
 })

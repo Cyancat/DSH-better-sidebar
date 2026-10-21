@@ -290,6 +290,25 @@ describe('built-in file viewer registrations', () => {
     expect(service.matchFileViewer('index.HTML')?.id).toBe('html')
   })
 
+  it('only html declares browserUrl, and it IS the sandboxed html route URL', () => {
+    const { service } = setup()
+    const viewers = service.getFileViewers()
+    const html = viewers.find(v => v.id === 'html')!
+    expect(html.browserUrl).toBeDefined()
+    // The browser cannot meaningfully render these: no button.
+    for (const id of ['markdown', 'jsonl', 'code']) {
+      expect(viewers.find(v => v.id === id)?.browserUrl, id).toBeUndefined()
+    }
+    // Absolute and page-prefix safe (hostRouteUrl + encodeHtmlUrl), not a
+    // hand-built '/sidebar/html/...' string. browser-globals.ts pins the
+    // page base at http://localhost/.
+    expect(html.browserUrl!({ sessionId: 's1', cwd: '/ws' }, '/ws/index.html'))
+      .toBe('http://localhost/sidebar/html/s1/ws/index.html')
+    // A relative path resolves against the session cwd exactly like htmlUrl.
+    expect(html.browserUrl!({ sessionId: 's1', cwd: '/ws' }, 'sub/page.html'))
+      .toBe('http://localhost/sidebar/html/s1/ws/sub/page.html')
+  })
+
   it('jsonl claims jsonl/ndjson before the catch-all', () => {
     const { service } = setup()
     // Newline-delimited JSON has its own record-per-row preview (and the
