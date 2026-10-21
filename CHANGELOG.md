@@ -2,6 +2,12 @@
 
 > 本文档收录 dsh-better-sidebar 的完整发布历史（最新版摘要见 [README](README_ZH.md)；同步发布于 [GitHub Releases](https://github.com/omdsh-dev/DSH-better-sidebar/releases)）。
 
+### Unreleased
+
+- **编辑器「在浏览器中打开」**：内置 html viewer 现在声明 `browserUrl`，编辑器 header 出现「在浏览器中打开」按钮——在真实浏览器新 Tab 打开带 CSP sandbox 的 `/sidebar/html` URL（顶层打开仍处 opaque origin）。点击后侧边栏中该文件的标签页自动关闭；有未保存草稿（html viewer 可编辑）时先确认，取消则不开也不关。markdown / jsonl / code 不显示该按钮；桌面壳（`dsh-app://app/`）隐藏（Electron 拒绝非 http(s) 弹窗，且系统浏览器没有壳进程持有的登录 cookie）。
+- **文件树右键 PDF「在浏览器中打开」**：仅对 `.pdf` 文件出现，在新 Tab 用浏览器原生 PDF 查看器打开 `/sidebar/file` 的 inline URL；不关闭宿主的 PDF 预览 tab，同样在桌面壳隐藏。
+- **`/sidebar/file` 的 inline 响应统一加固**：所有非 `download=1` 响应追加 `sandbox allow-scripts allow-downloads; object-src 'none'`、`nosniff` 与 `no-referrer`，堵住工作区 `.html` / `.svg` 被顶层导航时以 GUI 同源执行脚本的缺口；`?download=1`（attachment）分支不变。外部 viewer 可用的新字段与安全契约见 [接入指南 §5.1 / §6](docs/external-plugin-guide.md)。
+
 ### v0.28.0
 
 - **正式版支持线前移到 DSH 0.2.1-rc.1+**：13 条 DSH peer 下限统一为 `^0.2.1-rc.1`，开发依赖、CI 与安装脚本使用精确 RC 基线。不新增运行时兼容层、不改功能实现。
