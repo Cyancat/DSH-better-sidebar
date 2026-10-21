@@ -132,6 +132,38 @@ export function mediaTypeForPath(path: string): string {
   return MEDIA_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream'
 }
 
+/** CSP for INLINE /sidebar/file responses: opaque origin, scripts allowed so a
+ *  previewed HTML page still runs (without ever reaching the GUI's origin),
+ *  downloads permitted for the browser's own save affordance, plugin embeds
+ *  blocked — mirrors the /sidebar/html route. */
+export const MEDIA_INLINE_CSP = "sandbox allow-scripts allow-downloads; object-src 'none'"
+
+/**
+ * Response headers for one /sidebar/file serve. Raw bytes either way
+ * (binary-safe); `download` switches the disposition so the browser saves the
+ * file instead of showing it.
+ *
+ * INLINE responses are also navigated TOP-LEVEL (the editor header's "open in
+ * browser" button opens the media URL in a real new browser tab for viewers
+ * declaring `browserUrl`, and the file tree does the same for PDF rows):
+ * without a boundary a workspace .html / .svg would execute scripts
+ * SAME-ORIGIN with the GUI. Every inline response therefore carries the CSP
+ * sandbox directive (opaque origin even on a top-level load) plus nosniff and
+ * no-referrer — the same defense-in-depth as the /sidebar/html route. The CSP
+ * applies to the DOCUMENT; `<img src>` embedding is unaffected.
+ */
+export function mediaHeadersFor(path: string, download: boolean): Record<string, string> {
+  const headers: Record<string, string> = { 'content-type': mediaTypeForPath(path), 'cache-control': 'no-cache' }
+  if (download) {
+    headers['content-disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent(basename(path))}`
+  } else {
+    headers['x-content-type-options'] = 'nosniff'
+    headers['referrer-policy'] = 'no-referrer'
+    headers['content-security-policy'] = MEDIA_INLINE_CSP
+  }
+  return headers
+}
+
 /**
  * Resolve the committed execution directory before client or original-header
  * hints. Live reads are synchronous; detached reads use the host observation
@@ -1642,23 +1674,13 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
         if (!info.isFile()) {
           throw new SidebarError('fs-error', 'not a file', 400)
         }
-        const type = mediaTypeForPath(path)
         // Raw bytes either way (binary-safe); ?download=1 switches the
         // disposition so the browser saves the file instead of showing it.
-        const headers: Record<string, string> = { 'content-type': type, 'cache-control': 'no-cache' }
-        // An SVG is a scriptable DOCUMENT, not an inert image: navigating to
-        // this URL directly would run its <script> in the GUI's origin, with
-        // same-origin access to /sidebar/api/*. The sibling html route already
-        // sandboxes for exactly this reason; mirror it here. The CSP applies
-        // to the document, so <img src> embedding is unaffected.
-        if (type === 'image/svg+xml') {
-          headers['content-security-policy'] = "sandbox; object-src 'none'"
-          headers['x-content-type-options'] = 'nosniff'
-          headers['referrer-policy'] = 'no-referrer'
-        }
-        if (url.searchParams.get('download') === '1') {
-          headers['content-disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent(basename(path))}`
-        }
+        // INLINE responses are also navigated top-level ("open in browser"),
+        // so they all carry the CSP sandbox boundary (see mediaHeadersFor):
+        // an SVG *and* an HTML file are scriptable documents, and an unknown
+        // type could still be sniffed as one.
+        const headers = mediaHeadersFor(path, url.searchParams.get('download') === '1')
         // Streamed, not buffered: there is no size gate left, and the host's
         // memory stays flat whatever the file weighs (see file-stream.ts).
         await streamFileToResponse(path, info.size, res, headers)
