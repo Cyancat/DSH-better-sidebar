@@ -20,7 +20,7 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { apply } from '../src/index.ts'
+import { apply, MEDIA_INLINE_CSP, mediaHeadersFor } from '../src/index.ts'
 import { writeError, writeJson } from '../src/wire.ts'
 import type { SidebarWebRoute } from '../src/context-types.ts'
 import { removeTree } from './temp-tree.ts'
@@ -104,6 +104,38 @@ function fileUrl(origin: string, workspace: string, path: string, extra: Record<
   return `${origin}/sidebar/file?${params.toString()}`
 }
 
+describe('mediaHeadersFor: the inline/attachment split', () => {
+  it('sandboxes every inline type, not just SVG', () => {
+    for (const path of ['/ws/page.html', '/ws/vector.svg', '/ws/note.txt', '/ws/photo.png']) {
+      const headers = mediaHeadersFor(path, false)
+      expect(headers['content-security-policy'], path).toBe(MEDIA_INLINE_CSP)
+      expect(headers['x-content-type-options'], path).toBe('nosniff')
+      expect(headers['referrer-policy'], path).toBe('no-referrer')
+      expect(headers['content-disposition'], path).toBeUndefined()
+      expect(headers['cache-control'], path).toBe('no-cache')
+    }
+    expect(mediaHeadersFor('/ws/page.html', false)['content-type']).toBe('text/html')
+    expect(mediaHeadersFor('/ws/photo.png', false)['content-type']).toBe('image/png')
+  })
+
+  it('pins the exact CSP: opaque origin, scripts and downloads, no same-origin', () => {
+    expect(MEDIA_INLINE_CSP).toBe("sandbox allow-scripts allow-downloads; object-src 'none'")
+    // `allow-same-origin` would hand a top-level .html straight back the
+    // GUI's origin (localStorage + /sidebar/api/*), defeating the sandbox.
+    expect(MEDIA_INLINE_CSP).not.toContain('allow-same-origin')
+  })
+
+  it('keeps ?download=1 an attachment with no document headers', () => {
+    const headers = mediaHeadersFor('/ws/报告.pdf', true)
+    expect(headers['content-type']).toBe('application/pdf')
+    expect(headers['content-disposition'])
+      .toBe(`attachment; filename*=UTF-8''${encodeURIComponent('报告.pdf')}`)
+    expect(headers['content-security-policy']).toBeUndefined()
+    expect(headers['x-content-type-options']).toBeUndefined()
+    expect(headers['referrer-policy']).toBeUndefined()
+  })
+})
+
 describe('/sidebar/file streams without a size cap', () => {
   it('serves a file well past the retired 20 MiB mediaLimit', async () => {
     const ws = workspace('large')
@@ -152,19 +184,30 @@ describe('/sidebar/file streams without a size cap', () => {
     // node:http refuses a header value above U+00FF; the ASCII-only form is
     // what keeps a non-latin1 name from turning the download into a 500.
     expect([...disposition].every(char => char.codePointAt(0)! <= 0xFF)).toBe(true)
+    // A download is not a document: it gets no sandbox / nosniff / referrer.
+    expect(response.headers.get('content-security-policy')).toBeNull()
+    expect(response.headers.get('x-content-type-options')).toBeNull()
+    expect(response.headers.get('referrer-policy')).toBeNull()
   })
 
-  it('keeps the SVG sandbox headers on the streamed response', async () => {
-    const ws = workspace('svg')
-    const target = join(ws, 'vector.svg')
-    writeFileSync(target, '<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+  it('sandboxes every inline response: SVG and HTML are scriptable documents', async () => {
+    const ws = workspace('inline')
+    const svg = join(ws, 'vector.svg')
+    const html = join(ws, 'page.html')
+    writeFileSync(svg, '<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+    writeFileSync(html, '<html><body><script>1</script></body></html>')
     const { origin } = await serve(ws)
 
-    const response = await fetch(fileUrl(origin, ws, target))
-    expect(response.status).toBe(200)
-    expect(response.headers.get('content-security-policy')).toBe("sandbox; object-src 'none'")
-    expect(response.headers.get('x-content-type-options')).toBe('nosniff')
-    expect(response.headers.get('referrer-policy')).toBe('no-referrer')
+    for (const target of [svg, html]) {
+      const response = await fetch(fileUrl(origin, ws, target))
+      expect(response.status).toBe(200)
+      // The exact policy, not just "contains sandbox": the opaque origin is
+      // what keeps a top-level `open in browser` load away from the GUI's
+      // localStorage and /sidebar/api/*, and allow-same-origin would undo it.
+      expect(response.headers.get('content-security-policy')).toBe(MEDIA_INLINE_CSP)
+      expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+      expect(response.headers.get('referrer-policy')).toBe('no-referrer')
+    }
   })
 
   it('answers the JSON error envelope when the file cannot be opened', async () => {

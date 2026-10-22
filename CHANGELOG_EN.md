@@ -4,6 +4,13 @@
 >
 > 📝 The Chinese [CHANGELOG](./CHANGELOG.md) is the authoritative, item-by-item record; this file carries the English summaries and has historically lagged behind it. Where the two disagree, the Chinese one is current.
 
+### Unreleased
+
+- **Read-only context menu on search results**: file and directory hits both open a menu on right-click (the `ContextMenu` key / `Shift+F10` are equivalent), with read-only actions only — files get Open / Open in New Tab / Open to the Side / Download / Reveal in File Manager / Reveal in Tree / Copy relative or absolute path, directories get Reveal in Tree / Reveal in File Manager / Copy path. Rename, delete, upload, new file/folder and archive are absent, and the file tree's selection is untouched (failures surface in the search panel's own hint line, not the hidden tree). A `.pdf` hit additionally offers "Open in browser" through the same `open-in-browser` helper as the file tree: the same inline `mediaUrl()` URL, `_blank` + `noopener`, hidden in the desktop shell. Hits outside the cwd hide Reveal in Tree and Copy relative path; a query/result change or a parked tab closes the menu.
+- **Open in browser from the editor**: the built-in html viewer now declares `browserUrl`, so the editor header shows an "Open in browser" button that opens the sandboxed `/sidebar/html` URL in a real browser tab (even a top-level load stays in an opaque origin). The sidebar tab closes after the hand-off; a dirty draft (the html viewer is editable) asks for confirmation first, and cancelling neither opens nor closes. markdown / jsonl / code show no button; the desktop shell (`dsh-app://app/`) hides it (Electron denies non-http(s) popups and the system browser has no shell-held auth cookie).
+- **Open PDF in the browser from the file tree**: the row menu offers it for `.pdf` files only, opening the inline `/sidebar/file` URL in the browser's own PDF viewer. The host's PDF preview tab stays open, and the entry is hidden in the desktop shell too.
+- **Inline `/sidebar/file` responses are hardened**: every non-`download=1` response now carries `sandbox allow-scripts allow-downloads; object-src 'none'`, `nosniff` and `no-referrer`, closing the same-origin script-execution gap when a workspace `.html` / `.svg` is navigated top-level; the `?download=1` attachment branch is unchanged. See the [integration guide §5.1 / §6](docs/external-plugin-guide.md) for the new external-viewer field and the security contract.
+
 ### v0.28.0
 
 - **Stable plugin support moves to DSH 0.2.1-rc.1+**: all 13 DSH peer floors are `^0.2.1-rc.1`; development dependencies, CI and installers pin the exact RC baseline. No runtime compatibility layer or feature implementation changes are introduced.

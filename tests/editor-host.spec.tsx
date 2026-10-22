@@ -564,12 +564,166 @@ describe('EditorHost (files window)', () => {
       expect(buttons.map(b => b.textContent)).toContain('Edit')
       expect(header.querySelector('button[aria-label="Save"]')).not.toBeNull()
       expect(header.querySelector('[title="Unsaved"]')).not.toBeNull()
+      // No `browserUrl` declared → no open-in-browser button at all.
+      expect(header.querySelector('button[aria-label="Open in browser"]')).toBeNull()
       // The header commands reach the viewer's registered controls.
       act(() => { buttons.find(b => b.textContent === 'Edit')!.click() })
       act(() => { header.querySelector<HTMLButtonElement>('button[aria-label="Save"]')!.click() })
       expect(calls).toEqual(['mode:edit', 'save'])
     } finally {
       unmount()
+    }
+  })
+
+  it('open in browser: a real tab is opened and the sidebar tab closes', () => {
+    const { store, ctx } = setup()
+    const service = ctx.betterSidebar
+    service.registerFileViewer({
+      id: 'test:web',
+      exts: ['web'],
+      fetchStrategy: 'none',
+      // The descriptor's own URL builder: the header must open EXACTLY this,
+      // never a string it re-assembled from the path.
+      browserUrl: (scope, path) => `https://web.test/${scope.sessionId}${path}`,
+      component: () => null,
+    })
+    service.openTab({ type: 'editor', title: 'x.web', path: '/tmp/x.web', id: 'editor:/tmp/x.web' })
+    const fileTab = (): SidebarTab =>
+      allLeaves(store.getSnapshot().state!.bottomSplits).flatMap(leaf => leaf.tabs)
+        .find(tab => tab.path === '/tmp/x.web')!
+    const { container, unmount } = mountHost(ctx, store, fileTab)
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const close = vi.spyOn(service, 'closeTab')
+    try {
+      const button = container.querySelector<HTMLButtonElement>('button[aria-label="Open in browser"]')
+      expect(button).not.toBeNull()
+      expect(button!.title).toBe('Open in browser')
+      const tabId = fileTab().id
+      act(() => { button!.click() })
+      expect(open).toHaveBeenCalledTimes(1)
+      expect(open).toHaveBeenCalledWith(
+        `https://web.test/${sessionId}/tmp/x.web`,
+        '_blank',
+        'noopener',
+      )
+      // The hand-off closes the sidebar tab, scoped to this session.
+      expect(close).toHaveBeenCalledWith(tabId, { sessionId })
+      expect(allLeaves(store.getSnapshot().state!.bottomSplits).flatMap(leaf => leaf.tabs))
+        .not.toEqual(expect.arrayContaining([expect.objectContaining({ id: tabId })]))
+    } finally {
+      open.mockRestore()
+      close.mockRestore()
+      unmount()
+    }
+  })
+
+  it('open in browser: a dirty draft confirms first; cancel opens nothing and closes nothing', () => {
+    const { store, ctx } = setup()
+    const service = ctx.betterSidebar
+    const FakeViewer = (viewerProps: FileViewerProps): ReactNode => {
+      useEffect(() => {
+        viewerProps.onToolbarState?.({ modes: true, mode: 'edit', dirty: true, editable: true, saveState: 'idle' })
+        // Mount-only: re-running would re-fire the toolbar registration.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [])
+      return null
+    }
+    service.registerFileViewer({
+      id: 'test:web',
+      exts: ['web'],
+      fetchStrategy: 'none',
+      browserUrl: (_scope, path) => `https://web.test${path}`,
+      component: FakeViewer,
+    })
+    service.openTab({ type: 'editor', title: 'x.web', path: '/tmp/x.web', id: 'editor:/tmp/x.web' })
+    const fileTab = (): SidebarTab =>
+      allLeaves(store.getSnapshot().state!.bottomSplits).flatMap(leaf => leaf.tabs)
+        .find(tab => tab.path === '/tmp/x.web')!
+    const { container, unmount } = mountHost(ctx, store, fileTab)
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const close = vi.spyOn(service, 'closeTab')
+    try {
+      const button = container.querySelector<HTMLButtonElement>('button[aria-label="Open in browser"]')!
+      act(() => { button.click() })
+      expect(confirm).toHaveBeenCalledTimes(1)
+      expect(confirm.mock.calls[0]![0]).toContain('Unsaved edits will be discarded')
+      expect(open).not.toHaveBeenCalled()
+      expect(close).not.toHaveBeenCalled()
+      expect(fileTab().id).toBe('editor:/tmp/x.web')
+    } finally {
+      open.mockRestore()
+      confirm.mockRestore()
+      close.mockRestore()
+      unmount()
+    }
+  })
+
+  it('open in browser: accepting the dirty-draft confirm opens the tab AND closes the sidebar tab', () => {
+    const { store, ctx } = setup()
+    const service = ctx.betterSidebar
+    const FakeViewer = (viewerProps: FileViewerProps): ReactNode => {
+      useEffect(() => {
+        viewerProps.onToolbarState?.({ modes: true, mode: 'edit', dirty: true, editable: true, saveState: 'idle' })
+        // Mount-only: re-running would re-fire the toolbar registration.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [])
+      return null
+    }
+    service.registerFileViewer({
+      id: 'test:web',
+      exts: ['web'],
+      fetchStrategy: 'none',
+      browserUrl: (_scope, path) => `https://web.test${path}`,
+      component: FakeViewer,
+    })
+    service.openTab({ type: 'editor', title: 'x.web', path: '/tmp/x.web', id: 'editor:/tmp/x.web' })
+    const fileTab = (): SidebarTab =>
+      allLeaves(store.getSnapshot().state!.bottomSplits).flatMap(leaf => leaf.tabs)
+        .find(tab => tab.path === '/tmp/x.web')!
+    const { container, unmount } = mountHost(ctx, store, fileTab)
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const close = vi.spyOn(service, 'closeTab')
+    try {
+      const tabId = fileTab().id
+      act(() => { container.querySelector<HTMLButtonElement>('button[aria-label="Open in browser"]')!.click() })
+      expect(confirm).toHaveBeenCalledTimes(1)
+      expect(open).toHaveBeenCalledWith('https://web.test/tmp/x.web', '_blank', 'noopener')
+      expect(close).toHaveBeenCalledWith(tabId, { sessionId })
+    } finally {
+      open.mockRestore()
+      confirm.mockRestore()
+      close.mockRestore()
+      unmount()
+    }
+  })
+
+  it('open in browser: hidden in the desktop shell (dsh-app:// popups are denied)', () => {
+    const { store, ctx } = setup()
+    const service = ctx.betterSidebar
+    service.registerFileViewer({
+      id: 'test:web',
+      exts: ['web'],
+      fetchStrategy: 'none',
+      browserUrl: (_scope, path) => `https://web.test${path}`,
+      component: () => null,
+    })
+    service.openTab({ type: 'editor', title: 'x.web', path: '/tmp/x.web', id: 'editor:/tmp/x.web' })
+    const fileTab = (): SidebarTab =>
+      allLeaves(store.getSnapshot().state!.bottomSplits).flatMap(leaf => leaf.tabs)
+        .find(tab => tab.path === '/tmp/x.web')!
+    const document = globalThis.document as { baseURI?: string }
+    const previous = document.baseURI
+    Object.defineProperty(document, 'baseURI', { value: 'dsh-app://app/', configurable: true, writable: true })
+    const mounted = mountHost(ctx, store, fileTab)
+    try {
+      // The viewer is ready and declares a URL, so ONLY the environment gate
+      // can hide the button — no silent no-op in a desktop window.
+      expect(mounted.container.querySelector('button[aria-label="Open in browser"]')).toBeNull()
+    } finally {
+      mounted.unmount()
+      Object.defineProperty(document, 'baseURI', { value: previous, configurable: true, writable: true })
     }
   })
 

@@ -502,6 +502,10 @@ interface FileViewerDescriptor {
   /** fetchStrategy='custom' 时的加载函数；v0.12.0+ 第三参 signal 在 viewer
    *  卸载/重匹配时中止（忽略 signal 的 load 也照常工作） */
   load?: (path: string, scope: SessionScope, signal?: AbortSignal) => Promise<unknown>
+  /** 浏览器可原生渲染的绝对 http(s) URL：声明后编辑器 header 出现
+   *  「在浏览器中打开」按钮（真实新 Tab）；缺省＝该类型在浏览器里没有意义
+   *  （文本/代码/二进制），按钮不出现。用 hostRouteUrl() 生成，桌面壳不显示 */
+  browserUrl?: (scope: SessionScope, path: string) => string
   /** 声明式设置（v0.4.1+）：形状同 TabDescriptor.settings（§4.1 的
    *  toggles/pluginToggles/render；v0.12.0 起 viewer 卡片也有齿轮按钮） */
   settings?: SidebarSettingsDeclaration
@@ -565,8 +569,12 @@ interface FileViewerProps {
 
 > **head 字节从哪来**：第一次匹配（纯扩展名）没有 head。`fsRead` 策略读取后若文件为二进制，host 的 `fs.read` 响应会带 `head` 字段（base64，前 4KB，`src/index.ts` 的 `READ_HEAD_LIMIT`），编辑器会用它对 `detect` viewer **重匹配一次**——所以 detect 型 viewer 的实际触发场景是"扩展名匹配落空/二进制文件"。文本文件的 detect 嗅探不在内置流程内（用 `exts` 或 `custom` 策略替代）。
 
-> **内置 viewer**（不可重复注册，全部 3 个）：markdown(0, fsRead；内嵌 HTML 支持：DOMPurify 白名单消毒、`<details>` 跨段嵌套、本地媒体 src 重写走 `/sidebar/file`；≥3 标题时浮动目录大纲。实现 `markdown-html.ts` / `MarkdownHtml.tsx` / `md-toc.tsx`，[设计文档](plans/2026-08-24-markdown-html-toc-design.md)) / html(0, fsRead, 沙箱 iframe 预览 + `htmlViewerNoSandbox` / `htmlViewerDefaultUnsafe` 两个宿主没有的逃生门) / code(-100, catch-all, fsRead, **可编辑** CodeMirror + 保存 + 未提交变更提示（行号着色 / 左侧细色条 / hover blame，一个 `editorGitGutter` 开关，[设计文档](plans/2026-10-05-editor-git-gutter.md)）)。
-> code 是兜底 viewer：任何其他 viewer 未认领的文件都会落到 code（CodeMirror 文本编辑）；二进制文件经 head 重匹配找不到 sniffer，落到编辑器的下载面板。外部 viewer 注册同扩展名 + 更高 priority 即可覆盖内置的那三个。
+> **内置 viewer**（不可重复注册，全部 4 个）：markdown(0, fsRead；内嵌 HTML 支持：DOMPurify 白名单消毒、`<details>` 跨段嵌套、本地媒体 src 重写走 `/sidebar/file`；≥3 标题时浮动目录大纲。实现 `markdown-html.ts` / `MarkdownHtml.tsx` / `md-toc.tsx`，[设计文档](plans/2026-08-24-markdown-html-toc-design.md)) / html(0, fsRead, 沙箱 iframe 预览 + `htmlViewerNoSandbox` / `htmlViewerDefaultUnsafe` 两个宿主没有的逃生门) / jsonl(0, fsRead, 每条记录一行的 JSONL 预览 + 可编辑模式) / code(-100, catch-all, fsRead, **可编辑** CodeMirror + 保存 + 未提交变更提示（行号着色 / 左侧细色条 / hover blame，一个 `editorGitGutter` 开关，[设计文档](plans/2026-10-05-editor-git-gutter.md)）)。
+> code 是兜底 viewer：任何其他 viewer 未认领的文件都会落到 code（CodeMirror 文本编辑）；二进制文件经 head 重匹配找不到 sniffer，落到编辑器的下载面板。外部 viewer 注册同扩展名 + 更高 priority 即可覆盖内置的那四个。
+>
+> **「在浏览器中打开」**：只有 **html** 声明了 `browserUrl`（`/sidebar/html`，自带 CSP sandbox，顶层打开仍处 opaque origin），编辑器 header 会出现按钮；点击即把文件交接给浏览器，侧边栏中该文件的标签页**自动关闭**，有未保存草稿（html viewer 可编辑）时先弹确认，取消则不开不关。markdown / jsonl / code 不声明该字段，按钮不出现。浏览器无法原生渲染的类型不要为了「有按钮」而声明它。桌面壳（`dsh-app://app/`）不显示该按钮：Electron 只把 http(s) 弹窗交给系统浏览器，而系统浏览器没有壳进程持有的登录 cookie，新 Tab 会 401。
+>
+> **PDF 的「在浏览器中打开」不在 header**：PDF 属于下面的宿主接管集合，根本进不了本插件的 `EditorHost`；入口在**文件树右键菜单**（复用媒体路由 `/sidebar/file` 的 inline URL，同样受桌面壳门控，打开后不关闭宿主预览 tab）。图片本期不提供该入口。
 >
 > ⚠️ **让给宿主的格式（重要，影响你的 viewer 能不能被调用）**：DSH 0.1.7 的 `ui-sidebar-documentpreview` 自带 code / excel(xlsx,xls,csv,tsv) / office（宿主侧转 PDF）/ pdf / image / html / markdown / text 预览，并带缩放与**按目录自动刷新**——本插件原有的 image / pdf / binary-download 三个 viewer 描述符因此删除。更重要的是**路由**：插件的 `editor` 类型在 `canOpen` 里对下列扩展名一律返回 false（`src/client/native/index.ts` 的 `HOST_OWNED_EXTS`），把地址让给内置 `text` 档，**根本不会进入本插件的 `matchFileViewer`**：
 >
@@ -711,6 +719,10 @@ const url = ctx.betterSidebar.hostRouteUrl(
 ```
 
 > 注：内置的 `api.ts` 是 better-sidebar 内部模块，外部插件 **不要** value-import 它（构建纯度门会挡）；按上表模式自己 fetch 即可，路由一律经 `hostRouteUrl()`（或等价的「相对路径 + 页面前缀」解析）。所有 HTTP/WS 路由复用宿主 `ctx.connection.requestRejection(req)`：Host/Origin 与浏览器认证均由宿主裁决，只有返回 `undefined` 才准入；同源页面也必须先完成宿主登录。
+>
+> **inline 安全契约（重要）**：`/sidebar/file` 的**所有非 `download=1` 响应**现在统一带 `content-security-policy: sandbox allow-scripts allow-downloads; object-src 'none'`、`x-content-type-options: nosniff` 与 `referrer-policy: no-referrer`。原因：该 URL 会被**顶层导航**（编辑器 header 的「在浏览器中打开」、文件树右键 PDF），而工作区里的 `.html` / `.svg` 是可执行脚本的文档；`sandbox` 让顶层文档处于 opaque origin，脚本仍能运行但拿不到 GUI 的源（localStorage / `/sidebar/api/*`）。**不要**加 `allow-same-origin`，那等于取消隔离。`?download=1` 仍是 attachment（RFC 5987 文件名），不带以上三个头。CSP 只作用于文档本身，`<img src>` 嵌入不受影响。
+>
+> 需要为外部 viewer 声明 `browserUrl` 时，URL 必须是绝对 http(s) 地址并像上例一样经 `hostRouteUrl()` 生成（反代前缀、启动 token、桌面壳的页面基址都由它处理）；不要在插件里手拼 origin，也不要指向 `file://` / `dsh-app://`。
 
 ---
 

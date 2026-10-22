@@ -26,9 +26,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { createElement } from 'react'
 import clsx from 'clsx'
 import { IconCheckOutlineRegular, IconFolderOpenRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { VscLinkExternal } from 'react-icons/vsc'
 import type { Context } from '../context-types.ts'
 import { api, mediaUrl, type SessionScope } from './api.ts'
 import { BinaryDownload } from './binary-download.tsx'
+import { canOpenInBrowser } from './desktop-env.ts'
 import { planFirstMatch, planFsReadOutcome, type EditorLoadAction } from './editor-load.ts'
 import { clearEditorDirty, setEditorDirty } from './editor-dirty.ts'
 import { baseName } from './FileTree.tsx'
@@ -635,6 +637,38 @@ export function EditorHost(props: {
             onClick={refreshFile}
           >
             <IconRefreshOutlineRegular size={14} />
+          </button>
+        )}
+        {/* Open-in-browser: only when the matched viewer declares a
+            browser-renderable URL (builtin: html → the sandboxed html route)
+            AND the page is a real http(s) deployment. Text/code/jsonl viewers
+            declare nothing, so the button hides; desktop shells cannot hand a
+            dsh-app:// popup to the system browser, so the gate hides it there
+            too instead of rendering a silent no-op.
+            Opening hands the file to the browser, so the sidebar tab closes
+            itself — but never drop a dirty draft silently (the html viewer is
+            editable): confirm first, same pattern as refreshFile. */}
+        {load.status === 'ready' && load.viewer.browserUrl !== undefined && canOpenInBrowser() && (
+          <button
+            type="button"
+            className={css.iconButton}
+            aria-label={t('browserOpenExternal')}
+            title={t('browserOpenExternal')}
+            onClick={() => {
+              if (load.status !== 'ready' || load.viewer.browserUrl === undefined) return
+              if (toolbar?.dirty === true) {
+                // Same fail-closed rule as refreshFile: without a usable
+                // confirm, keep the draft and skip the hand-off entirely.
+                const confirmed = typeof window.confirm === 'function'
+                  ? window.confirm(t('openBrowserCloseConfirm'))
+                  : false
+                if (!confirmed) return
+              }
+              window.open(load.viewer.browserUrl(scope, path), '_blank', 'noopener')
+              service?.closeTab(tab.id, scope)
+            }}
+          >
+            <VscLinkExternal size={14} />
           </button>
         )}
         <button

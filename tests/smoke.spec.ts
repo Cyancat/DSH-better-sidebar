@@ -10,7 +10,7 @@ import { tmpdir, homedir } from 'node:os'
 import { dirname, join, resolve as resolvePath } from 'node:path'
 import { SettingsConflictError, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { WebSocket } from 'ws'
-import { apply, FS_TREES_MAX_PATHS, mediaTypeForPath } from '../src/index.ts'
+import { apply, FS_TREES_MAX_PATHS, MEDIA_INLINE_CSP, mediaTypeForPath } from '../src/index.ts'
 import { SIDEBAR_PREFS_DEFAULTS } from '../src/prefs-shared.ts'
 import { encodeHtmlUrl } from '../src/html-route.ts'
 import { encodeText } from '../src/text-encoding.ts'
@@ -1279,13 +1279,15 @@ describe('session cwd resolution over the API route', () => {
     }
   })
 
-  it('leaves an ordinary image response free of the SVG sandbox headers', async () => {
-    // The guard is scoped to the scriptable type: a PNG must not gain a
-    // sandbox directive (nothing to sandbox, and it would be a behaviour
-    // change for existing image previews).
+  it('sandboxes every inline media response, not only the scriptable SVG', async () => {
+    // The boundary is not type-scoped any more: EVERY inline response may be
+    // navigated top-level (the editor header's open-in-browser button, the
+    // file tree's PDF row), and a PNG served bare would only be one sniff
+    // away from a document. The policy is identical across types so one
+    // helper (mediaHeadersFor) can be the single source of truth.
     const root = mkdtempSync(join(tmpdir(), 'dsh-sidebar-png-security-'))
     const workspace = join(root, 'workspace')
-    mkdirSync(workspace)
+    mkdirSync(workspace, { recursive: true })
     const pngPath = join(workspace, 'pixel.png')
     writeFileSync(pngPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]))
     try {
@@ -1294,7 +1296,9 @@ describe('session cwd resolution over the API route', () => {
       const res = await invokeGetFull(media, `/sidebar/file?sessionId=security&path=${encodeURIComponent(pngPath)}`)
       expect(res.status).toBe(200)
       expect(res.headers['content-type']).toBe('image/png')
-      expect(res.headers['content-security-policy']).toBeUndefined()
+      expect(res.headers['content-security-policy']).toBe(MEDIA_INLINE_CSP)
+      expect(res.headers['x-content-type-options']).toBe('nosniff')
+      expect(res.headers['referrer-policy']).toBe('no-referrer')
     } finally {
       removeTree(root)
     }

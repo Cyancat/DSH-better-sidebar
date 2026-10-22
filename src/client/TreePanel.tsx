@@ -19,7 +19,7 @@
  * drop over the file window uploads here and never reaches DSH's chat
  * intake.
  */
-import { useEffect, useMemo, useRef, useState, type InputHTMLAttributes } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type InputHTMLAttributes } from 'react'
 import clsx from 'clsx'
 import { IconChevronsUpDownOutlineRegular, IconFolderOpenRegular, IconRefreshOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import { api } from './api.ts'
@@ -32,6 +32,7 @@ import type { OpenInApp } from './open-in-app.ts'
 import type { OpenWithTarget } from './open-with.ts'
 import { t } from './locales.ts'
 import { isWithinWorkspace, resolveSidebarPath } from './paths.ts'
+import { SearchResultMenu, type SearchResultMenuTarget } from './SearchResultMenu.tsx'
 import { IconButton } from './ui/index.ts'
 import { UploadOverlay } from './UploadOverlay.tsx'
 import {
@@ -39,6 +40,9 @@ import {
   UPLOAD_HINT_MS, type UploadItem,
 } from './upload.ts'
 import css from './sidebar.module.css'
+
+/** A successful menu hint ('Copied') fades after this; failures stay. */
+const SEARCH_NOTICE_MS = 2000
 
 /** One in-flight upload session (the overlay's progress source). */
 interface UploadSession {
@@ -112,6 +116,40 @@ export function TreePanel(props: {
    */
   const [sort, setSort] = useState<FileTreeSort>(DEFAULT_FILE_TREE_SORT)
   const [sortOpen, setSortOpen] = useState(false)
+  /**
+   * The right-clicked (or keyboard-opened) search result row. This menu lives
+   * OUTSIDE the results panel so clearing the query cannot unmount it mid-
+   * action; the query/result effects below retire the target instead.
+   */
+  const [menuTarget, setMenuTarget] = useState<SearchResultMenuTarget | null>(null)
+  /** The search panel's own hint line (menu copy success / open failure). */
+  const [menuNotice, setMenuNotice] = useState<{ text: string; failed: boolean } | null>(null)
+  const noticeTimerRef = useRef<number | null>(null)
+  /**
+   * Whether the host can reveal paths in a file manager. Probed once per
+   * handle, exactly like the tree's `appReady` — the adapter shares one probe,
+   * and the tree is always mounted beside this panel anyway.
+   */
+  const [openInAppReady, setOpenInAppReady] = useState(() => openInApp?.available() === true)
+
+  useEffect(() => {
+    if (openInApp === undefined) {
+      setOpenInAppReady(false)
+      return
+    }
+    const known = openInApp.available()
+    if (known !== null) {
+      setOpenInAppReady(known)
+      return
+    }
+    let cancelled = false
+    void openInApp.probe().then((ok) => {
+      if (!cancelled) setOpenInAppReady(ok)
+    }).catch(() => {
+      if (!cancelled) setOpenInAppReady(false)
+    })
+    return () => { cancelled = true }
+  }, [openInApp])
 
   // The tree caches loaded directories per refresh tick, so content changed
   // outside DSH (another editor, a sync tool) stays stale until the manual
@@ -245,6 +283,75 @@ export function TreePanel(props: {
     setQuery('')
   }
 
+  /** Left-click and the menu's Open row share one activation. */
+  const activateSearchHit = (target: Pick<SearchResultMenuTarget, 'rel' | 'path' | 'isDir'>): void => {
+    if (target.isDir) openSearchDir(target.rel)
+    else onOpenFile(target.path)
+  }
+
+  /**
+   * "Reveal in tree" for a flat hit. A directory keeps the left-click
+   * semantics (expand + clear the query; a cwd-external row only clears it). A
+   * file expands its ancestor chain and hands the panel back to the tree; no
+   * highlight or scroll — that would couple this menu to EditorHost's
+   * `revealed` state, and the query clearing already scrolls the tree.
+   */
+  const revealSearchHit = (target: Pick<SearchResultMenuTarget, 'rel' | 'path' | 'isDir'>): void => {
+    if (target.isDir) {
+      openSearchDir(target.rel)
+      return
+    }
+    if (cwd !== undefined && isWithinWorkspace(cwd, target.path)) {
+      for (const dir of ancestorDirs(cwd, [target.path])) {
+        if (!expanded.includes(dir)) onToggle(dir)
+      }
+    }
+    setQuery('')
+  }
+
+  /** One timer for the whole panel: a new notice or unmount retires the old. */
+  const clearNoticeTimer = useCallback((): void => {
+    if (noticeTimerRef.current !== null) {
+      window.clearTimeout(noticeTimerRef.current)
+      noticeTimerRef.current = null
+    }
+  }, [])
+
+  /** Show one menu hint; a success fades, a failure stays until the next one. */
+  const notifySearch = (text: string, failed = false): void => {
+    clearNoticeTimer()
+    const notice = { text, failed }
+    setMenuNotice(notice)
+    if (failed) return
+    noticeTimerRef.current = window.setTimeout(() => {
+      noticeTimerRef.current = null
+      setMenuNotice(current => (current === notice ? null : current))
+    }, SEARCH_NOTICE_MS)
+  }
+
+  // Unmount only: the timer must not fire into a torn-down panel.
+  useEffect(() => clearNoticeTimer, [clearNoticeTimer])
+
+  // A menu pointing at a row from the previous query could act on a stale
+  // path, so any query/result change closes it.
+  useEffect(() => { setMenuTarget(null) }, [needle, results])
+  // Same rule for the hint's target: a new query starts a new action context.
+  useEffect(() => {
+    clearNoticeTimer()
+    setMenuNotice(null)
+  }, [needle, clearNoticeTimer])
+  // Native tab bodies stay mounted while parked: a menu must not wait in the
+  // background for the tab to come back.
+  useEffect(() => {
+    if (visible === false) setMenuTarget(null)
+  }, [visible])
+
+  /** The menu's file-manager row: the host's reveal handle, failures mapped. */
+  const revealInFileManager = async (path: string): Promise<boolean> => {
+    if (openInApp === undefined) return false
+    return openInApp.reveal(path)
+  }
+
   return (
     <div className={clsx(css.editorTreePanel, full === true && css.editorTreePanelFull)}>
       <div className={css.editorTreeSearch}>
@@ -329,9 +436,18 @@ export function TreePanel(props: {
           }}
         />
       </div>
-      {uploadStatus !== '' && (
+      {/* One hint line under the search row: an upload session wins (it has
+          progress), otherwise the search menu's own error / copy feedback. */}
+      {uploadStatus !== '' ? (
         <div className={clsx(css.editorSearchHint, uploadFailed && css.editorError)} title={uploadStatus}>{uploadStatus}</div>
-      )}
+      ) : menuNotice !== null ? (
+        <div
+          className={clsx(css.editorSearchHint, menuNotice.failed && css.editorError)}
+          title={menuNotice.text}
+        >
+          {menuNotice.text}
+        </div>
+      ) : null}
       {/* Search results: parked (not unmounted) while the query is empty. Its
           contents render only for a live query — a parked panel must not put
           state text (the loading line) into the panel's DOM. */}
@@ -348,6 +464,7 @@ export function TreePanel(props: {
             )}
             {error === null && results !== null && results.matches.map((rel) => {
               const isDirHit = dirHits.has(rel)
+              const path = resolveSidebarPath(cwd, rel)
               return (
                 <button
                   key={rel}
@@ -355,9 +472,20 @@ export function TreePanel(props: {
                   className={clsx(css.editorSearchResult, isDirHit && css.editorSearchResultDir)}
                   title={rel}
                   data-dsh-search-dir={isDirHit ? 'true' : undefined}
-                  onClick={() => {
-                    if (isDirHit) openSearchDir(rel)
-                    else onOpenFile(resolveSidebarPath(cwd, rel))
+                  onClick={() => { activateSearchHit({ rel, path, isDir: isDirHit }) }}
+                  onContextMenu={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    setMenuTarget({ rel, path, isDir: isDirHit, x: event.clientX, y: event.clientY })
+                  }}
+                  // Keyboard parity with the right-click: the ContextMenu key
+                  // or Shift+F10 opens the menu at the row, then the primitive
+                  // owns arrows / Escape / focus.
+                  onKeyDown={(event) => {
+                    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+                    event.preventDefault()
+                    const rect = event.currentTarget.getBoundingClientRect()
+                    setMenuTarget({ rel, path, isDir: isDirHit, x: rect.left, y: rect.bottom })
                   }}
                 >
                   {isDirHit && <IconFolderOpenRegular size={14} />}
@@ -400,6 +528,21 @@ export function TreePanel(props: {
         visible={visible !== false}
         sort={sort}
         service={service}
+      />
+      {/* The search menu lives OUTSIDE the results panel (and above the
+          upload overlay): clearing the query parks the panel, but a menu in
+          flight must not unmount with it. */}
+      <SearchResultMenu
+        target={menuTarget}
+        scope={{ sessionId, cwd }}
+        cwd={cwd}
+        onClose={() => { setMenuTarget(null) }}
+        onActivate={activateSearchHit}
+        onRevealInTree={revealSearchHit}
+        onOpenNewTab={onOpenFileNewTab}
+        onOpenSide={onOpenFileSide}
+        onRevealInFileManager={openInAppReady ? revealInFileManager : undefined}
+        onNotify={notifySearch}
       />
       {upload !== null && (
         <UploadOverlay

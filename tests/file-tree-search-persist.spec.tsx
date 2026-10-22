@@ -16,6 +16,7 @@ import { createElement, type ComponentProps } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { act } from 'react-dom/test-utils'
 import { TreePanel } from '../src/client/TreePanel.tsx'
+import type { OpenInApp } from '../src/client/open-in-app.ts'
 
 import { setupReactAct } from './test-utils.ts'
 setupReactAct()
@@ -42,6 +43,10 @@ const { fsTrees, fsSearch } = vi.hoisted(() => ({
     ({ matches: ['a.ts'], dirs: [], truncated: false })),
 }))
 
+/** The one URL shape the mocked inline media route answers; asserted verbatim. */
+const mediaUrlOf = (scope: { sessionId: string }, path: string): string =>
+  `http://host.test/sidebar/file?sessionId=${scope.sessionId}&path=${encodeURIComponent(path)}`
+
 vi.mock('../src/client/api.ts', () => ({
   api: {
     fsTrees,
@@ -51,11 +56,30 @@ vi.mock('../src/client/api.ts', () => ({
     gitStatus: async () => ({ isRepo: false, entries: [] }),
   },
   downloadUrl: () => '/sidebar/file',
+  // The PDF menu row builds an inline media URL; the hoisted factory cannot
+  // close over mediaUrlOf, so the same expression is spelled here.
+  mediaUrl: (scope: { sessionId: string }, path: string) =>
+    `http://host.test/sidebar/file?sessionId=${scope.sessionId}&path=${encodeURIComponent(path)}`,
   isOutsideWorkspaceMessage: () => false,
 }))
 
+/** The host's open-in-app handle, present only in the tests that need it. */
+function fakeOpenInApp(overrides: Partial<OpenInApp> = {}): OpenInApp {
+  return {
+    available: () => true,
+    probe: async () => true,
+    directoryApps: async () => [],
+    fileApps: async () => [],
+    open: async () => true,
+    reveal: async () => true,
+    ...overrides,
+  }
+}
+
 interface Harness {
   container: HTMLDivElement
+  /** Re-render with the same props plus overrides (visibility changes). */
+  rerender: (overrides: Partial<ComponentProps<typeof TreePanel>>) => void
   unmount: () => void
 }
 
@@ -63,20 +87,23 @@ function mountPanel(overrides: Partial<ComponentProps<typeof TreePanel>> = {}): 
   const container = document.createElement('div')
   document.body.append(container)
   const root: Root = createRoot(container)
-  act(() => {
-    root.render(createElement(TreePanel, {
-      sessionId: 's1',
-      cwd: '/tmp',
-      expanded: [],
-      revealed: [],
-      onToggle: () => {},
-      onOpenFile: () => {},
-      onReferenceFile: () => {},
-      ...overrides,
-    }))
-  })
+  let props: ComponentProps<typeof TreePanel> = {
+    sessionId: 's1',
+    cwd: '/tmp',
+    expanded: [],
+    revealed: [],
+    onToggle: () => {},
+    onOpenFile: () => {},
+    onReferenceFile: () => {},
+    ...overrides,
+  }
+  act(() => { root.render(createElement(TreePanel, props)) })
   return {
     container,
+    rerender: (next) => {
+      props = { ...props, ...next }
+      act(() => { root.render(createElement(TreePanel, props)) })
+    },
     unmount: () => { act(() => { root.unmount() }); container.remove() },
   }
 }
@@ -99,6 +126,11 @@ function resultsBody(container: HTMLElement): HTMLElement {
     .find(el => el !== tree)
   if (body === undefined) throw new Error('results body not mounted')
   return body
+}
+
+/** The search rows, in list order (the tree's own rows are not buttons here). */
+function resultRows(container: HTMLElement): HTMLButtonElement[] {
+  return [...resultsBody(container).querySelectorAll<HTMLButtonElement>('button[class*="editorSearchResult"]')]
 }
 
 /** Type a query the React way and let the 300ms debounce elapse. */
@@ -189,11 +221,6 @@ describe('TreePanel refresh and truncated levels', () => {
 })
 
 describe('TreePanel directory hits navigate instead of opening', () => {
-  /** The search rows, in list order (the tree's own rows are not buttons here). */
-  function resultRows(container: HTMLElement): HTMLButtonElement[] {
-    return [...resultsBody(container).querySelectorAll<HTMLButtonElement>('button[class*="editorSearchResult"]')]
-  }
-
   it('expands a directory hit in the tree and never asks to open it as a file', async () => {
     fsSearch.mockResolvedValue({ matches: ['src', 'src/a.ts'], dirs: ['src'], truncated: false })
     const onToggle = vi.fn()
@@ -265,5 +292,269 @@ describe('TreePanel directory hits navigate instead of opening', () => {
     await act(async () => { dirRow.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
     expect(onToggle).not.toHaveBeenCalled()
     expect(harness.container.querySelector<HTMLInputElement>('input[class*="editorSearchInput"]')!.value).toBe('')
+  })
+})
+
+describe('TreePanel search result context menu', () => {
+  function menuLabels(): string[] {
+    return [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+      .map(item => item.textContent?.trim() ?? '')
+  }
+
+  function menuitem(label: string): HTMLElement {
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+      .find(el => el.textContent?.trim() === label)
+    if (item === undefined) throw new Error(`menuitem not found: ${label}; menu: ${menuLabels().join(' | ')}`)
+    return item
+  }
+
+  async function openMenu(row: HTMLElement): Promise<void> {
+    await act(async () => {
+      row.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true, clientX: 24, clientY: 36,
+      }))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+  }
+
+  async function clickMenuitem(label: string): Promise<void> {
+    await act(async () => {
+      menuitem(label).click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+  }
+
+  function rowByText(container: HTMLElement, text: string): HTMLButtonElement {
+    const row = resultRows(container).find(candidate => candidate.textContent === text)
+    if (row === undefined) throw new Error(`search row not found: ${text}`)
+    return row
+  }
+
+  it('offers the read-only file actions (and none of the tree’s mutations)', async () => {
+    fsSearch.mockResolvedValue({ matches: ['a.ts'], dirs: [], truncated: false })
+    const onOpenFileNewTab = vi.fn()
+    const onOpenFileSide = vi.fn()
+    harness = mountPanel({ openInApp: fakeOpenInApp(), onOpenFileNewTab, onOpenFileSide })
+    await act(async () => {})
+    await search(harness.container, 'a')
+
+    await openMenu(rowByText(harness.container, 'a.ts'))
+    expect(menuLabels()).toEqual([
+      'Open',
+      'Open in New Tab',
+      'Open to the Side',
+      'Download',
+      'Reveal in File Manager',
+      'Reveal in Tree',
+      'Copy relative path',
+      'Copy absolute path',
+    ])
+    // A flat search result is not the tree's selection: no mutating rows.
+    for (const forbidden of ['Rename', 'Delete', 'Upload here', 'New folder', 'New file', 'Zip and download']) {
+      expect(menuLabels(), forbidden).not.toContain(forbidden)
+    }
+  })
+
+  it('opens the file hit through the same callback as a left click', async () => {
+    fsSearch.mockResolvedValue({ matches: ['a.ts'], dirs: [], truncated: false })
+    const onOpenFile = vi.fn()
+    harness = mountPanel({ onOpenFile })
+    await act(async () => {})
+    await search(harness.container, 'a')
+
+    await openMenu(rowByText(harness.container, 'a.ts'))
+    await clickMenuitem('Open')
+    expect(onOpenFile).toHaveBeenCalledWith('/tmp/a.ts')
+    // Selecting a row closes the menu.
+    expect(menuLabels()).toEqual([])
+  })
+
+  it('offers a directory hit only the reveal / copy actions, never the file ones', async () => {
+    fsSearch.mockResolvedValue({ matches: ['src'], dirs: ['src'], truncated: false })
+    harness = mountPanel({ openInApp: fakeOpenInApp(), onOpenFileNewTab: vi.fn(), onOpenFileSide: vi.fn() })
+    await act(async () => {})
+    await search(harness.container, 'src')
+
+    await openMenu(rowByText(harness.container, 'src'))
+    expect(menuLabels()).toEqual([
+      'Reveal in Tree',
+      'Reveal in File Manager',
+      'Copy relative path',
+      'Copy absolute path',
+    ])
+    for (const forbidden of ['Open', 'Open in New Tab', 'Open to the Side', 'Download', 'Open in browser']) {
+      expect(menuLabels(), forbidden).not.toContain(forbidden)
+    }
+  })
+
+  it('reveals a file hit by expanding its ancestors and clearing the query', async () => {
+    fsSearch.mockResolvedValue({ matches: ['src/a.ts'], dirs: [], truncated: false })
+    const onToggle = vi.fn()
+    harness = mountPanel({ cwd: '/tmp', expanded: [], onToggle })
+    await act(async () => {})
+    await search(harness.container, 'src')
+
+    await openMenu(rowByText(harness.container, 'src/a.ts'))
+    await clickMenuitem('Reveal in Tree')
+    expect(onToggle).toHaveBeenCalledWith('/tmp/src')
+    expect(harness.container.querySelector<HTMLInputElement>('input[class*="editorSearchInput"]')!.value).toBe('')
+    expect(resultsBody(harness.container).hasAttribute('hidden')).toBe(true)
+  })
+
+  it('offers the PDF browser row and opens the exact inline media URL', async () => {
+    fsSearch.mockResolvedValue({ matches: ['manual.pdf'], dirs: [], truncated: false })
+    harness = mountPanel()
+    await act(async () => {})
+    await search(harness.container, 'manual')
+
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    try {
+      await openMenu(rowByText(harness.container, 'manual.pdf'))
+      expect(menuLabels()).toContain('Open in browser')
+      await clickMenuitem('Open in browser')
+      expect(open).toHaveBeenCalledTimes(1)
+      expect(open).toHaveBeenCalledWith(
+        mediaUrlOf({ sessionId: 's1' }, '/tmp/manual.pdf'),
+        '_blank',
+        'noopener',
+      )
+    } finally {
+      open.mockRestore()
+    }
+  })
+
+  it('never offers the browser row for a non-PDF hit or in the desktop shell', async () => {
+    fsSearch.mockResolvedValue({ matches: ['a.ts', 'manual.pdf'], dirs: [], truncated: false })
+    harness = mountPanel()
+    await act(async () => {})
+    await search(harness.container, 'a')
+
+    await openMenu(rowByText(harness.container, 'a.ts'))
+    expect(menuLabels()).not.toContain('Open in browser')
+    await act(async () => { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+
+    const doc = globalThis.document as { baseURI?: string }
+    const previous = doc.baseURI
+    Object.defineProperty(doc, 'baseURI', { value: 'dsh-app://app/', configurable: true, writable: true })
+    try {
+      await openMenu(rowByText(harness.container, 'manual.pdf'))
+      expect(menuLabels()).toContain('Download')
+      expect(menuLabels()).not.toContain('Open in browser')
+    } finally {
+      Object.defineProperty(doc, 'baseURI', { value: previous, configurable: true, writable: true })
+    }
+  })
+
+  it('hides reveal-in-tree and copy-relative for a hit outside the cwd', async () => {
+    fsSearch.mockResolvedValue({ matches: ['/elsewhere/notes.md'], dirs: [], truncated: false })
+    harness = mountPanel({ openInApp: fakeOpenInApp(), onOpenFileNewTab: vi.fn(), onOpenFileSide: vi.fn() })
+    await act(async () => {})
+    await search(harness.container, 'notes')
+
+    await openMenu(rowByText(harness.container, '/elsewhere/notes.md'))
+    expect(menuLabels()).toEqual([
+      'Open',
+      'Open in New Tab',
+      'Open to the Side',
+      'Download',
+      'Reveal in File Manager',
+      'Copy absolute path',
+    ])
+  })
+
+  it('offers a cwd-external directory only file manager + absolute copy', async () => {
+    fsSearch.mockResolvedValue({ matches: ['/elsewhere/records'], dirs: ['/elsewhere/records'], truncated: false })
+    harness = mountPanel({ openInApp: fakeOpenInApp() })
+    await act(async () => {})
+    await search(harness.container, '/elsewhere/records')
+
+    await openMenu(rowByText(harness.container, '/elsewhere/records'))
+    expect(menuLabels()).toEqual(['Reveal in File Manager', 'Copy absolute path'])
+  })
+
+  it('closes the menu when the query changes', async () => {
+    fsSearch.mockResolvedValue({ matches: ['a.ts'], dirs: [], truncated: false })
+    harness = mountPanel()
+    await act(async () => {})
+    await search(harness.container, 'a')
+    await openMenu(rowByText(harness.container, 'a.ts'))
+    expect(menuLabels()).toContain('Open')
+
+    await search(harness.container, 'b')
+    expect(menuLabels()).toEqual([])
+  })
+
+  it('closes the menu when the tab is parked', async () => {
+    fsSearch.mockResolvedValue({ matches: ['a.ts'], dirs: [], truncated: false })
+    harness = mountPanel({ visible: true })
+    await act(async () => {})
+    await search(harness.container, 'a')
+    await openMenu(rowByText(harness.container, 'a.ts'))
+    expect(menuLabels()).toContain('Open')
+
+    // Native tab bodies keep their DOM while parked: the menu must not linger.
+    await act(async () => { harness.rerender({ visible: false }) })
+    expect(menuLabels()).toEqual([])
+  })
+
+  it('opens from the keyboard (ContextMenu key) as well as right-click', async () => {
+    fsSearch.mockResolvedValue({ matches: ['a.ts'], dirs: [], truncated: false })
+    harness = mountPanel()
+    await act(async () => {})
+    await search(harness.container, 'a')
+
+    await act(async () => {
+      rowByText(harness.container, 'a.ts').dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true, cancelable: true }),
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(menuLabels()).toContain('Open')
+  })
+
+  it('does not touch the file tree’s selection', async () => {
+    fsSearch.mockResolvedValue({ matches: ['a.ts'], dirs: [], truncated: false })
+    harness = mountPanel()
+    await act(async () => {})
+    await search(harness.container, 'a')
+    expect(treeBody(harness.container).querySelector('[class*="explorerRowSelected"]')).toBeNull()
+
+    await openMenu(rowByText(harness.container, 'a.ts'))
+    expect(menuLabels().length).toBeGreaterThan(0)
+    expect(treeBody(harness.container).querySelector('[class*="explorerRowSelected"]')).toBeNull()
+  })
+
+  it('reports a failed reveal in the search panel, not in the hidden tree', async () => {
+    fsSearch.mockResolvedValue({ matches: ['a.ts'], dirs: [], truncated: false })
+    const reveal = vi.fn(async () => false)
+    harness = mountPanel({ openInApp: fakeOpenInApp({ reveal }) })
+    await act(async () => {})
+    await search(harness.container, 'a')
+
+    await openMenu(rowByText(harness.container, 'a.ts'))
+    await clickMenuitem('Reveal in File Manager')
+    expect(reveal).toHaveBeenCalledWith('/tmp/a.ts')
+    expect(harness.container.textContent).toContain('Could not open: /tmp/a.ts')
+  })
+
+  it('copies the relative path and shows the transient hint', async () => {
+    fsSearch.mockResolvedValue({ matches: ['a.ts'], dirs: [], truncated: false })
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(window.navigator, 'clipboard', { value: { writeText }, configurable: true })
+    try {
+      harness = mountPanel()
+      await act(async () => {})
+      await search(harness.container, 'a')
+
+      await openMenu(rowByText(harness.container, 'a.ts'))
+      await clickMenuitem('Copy relative path')
+      expect(writeText).toHaveBeenCalledWith('a.ts')
+      expect(harness.container.textContent).toContain('Copied')
+    } finally {
+      Object.defineProperty(window.navigator, 'clipboard', { value: undefined, configurable: true })
+    }
   })
 })

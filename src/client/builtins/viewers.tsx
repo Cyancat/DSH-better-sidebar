@@ -41,6 +41,7 @@ import {
 } from '../icons.tsx'
 import type { ComponentType } from 'react'
 import type { FileViewerDescriptor, FileViewerProps } from '../service.ts'
+import { htmlUrl } from '../api.ts'
 import { t } from '../locales.ts'
 
 /**
@@ -68,6 +69,10 @@ export function builtinViewers(): readonly FileViewerDescriptor[] {
       icon: (size: number) => <IconHtmlOutline16 size={size} />,
       exts: ['html', 'htm'],
       fetchStrategy: 'fsRead',
+      // The sandboxed /sidebar/html URL: its CSP header keeps even a
+      // top-level new-tab load in an opaque origin (the htmlViewerNoSandbox
+      // setting governs only the in-editor iframe ATTRIBUTE, never this).
+      browserUrl: (scope, path) => htmlUrl(scope, path),
       // Declarative settings: the sandbox escape hatch and the default-unsafe
       // start state render under this viewer's row in the Side card settings
       // page (both warned on).
