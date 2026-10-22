@@ -61,6 +61,8 @@ export const ar: Record<string, string> = {
   editorEmptyHint: 'اختر ملفاً من لوحة الشجرة أو من حقل المسار بالأعلى لبدء المعاينة',
   openFileNewTab: 'فتح في تبويب جديد',
   openFileSide: 'فتح إلى الجانب',
+  searchOpen: 'فتح',
+  searchRevealInTree: 'إظهار في شجرة الملفات',
   settingsOpenWithPluginTitle: 'إظهار خيارات الفتح الخاصة بالإضافة دائماً',
   settingsOpenWithPluginDesc: 'افتراضياً تُعرض خيارات الفتح الخاصة بالإضافة فقط عندما لا يكتشف المضيف أي تطبيق مرتبط محلياً (مدير الملفات / VS Code / Cursor / Zed / محرّرات مخصّصة، SSH عن بُعد)؛ وبعد التفعيل تتواجد تطبيقات المضيف وأهداف الإضافة معاً',
   zipDownload: 'ضغط وتنزيل',

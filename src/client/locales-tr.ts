@@ -60,6 +60,8 @@ export const tr: Record<string, string> = {
   editorEmptyHint: 'Önizlemeye başlamak için sağdaki dosya ağacından veya yukarıdaki yol girişinden bir dosya seçin',
   openFileNewTab: 'Yeni sekmede aç',
   openFileSide: 'Yana aç',
+  searchOpen: 'Aç',
+  searchRevealInTree: 'Dosya ağacında göster',
   settingsOpenWithPluginTitle: 'Eklentinin kendi "Birlikte aç" seçeneklerini her zaman göster',
   settingsOpenWithPluginDesc: 'Varsayılan olarak eklentinin kendi "Birlikte aç" seçenekleri yalnızca ana makine yerel bir ilişkili uygulama algılamadığında gösterilir (Dosya yöneticisi / VS Code / Cursor / Zed / özel düzenleyiciler, uzak SSH); açıldığında ana makine uygulamaları ile eklenti hedefleri bir arada bulunur',
   zipDownload: 'Sıkıştır ve indir',

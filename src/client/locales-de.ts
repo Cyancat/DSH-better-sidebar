@@ -46,6 +46,8 @@ export const de: Record<string, string> = {
   editorEmptyHint: 'Wählen Sie eine Datei aus dem Dateibaum rechts oder dem Pfadeingabefeld oben, um mit der Vorschau zu beginnen',
   openFileNewTab: 'In neuem Tab öffnen',
   openFileSide: 'Seitlich öffnen',
+  searchOpen: 'Öffnen',
+  searchRevealInTree: 'Im Dateibaum anzeigen',
   settingsOpenWithPluginTitle: 'Plugin-eigene „Öffnen mit“-Ziele immer anzeigen',
   settingsOpenWithPluginDesc: 'Standardmäßig werden die plugin-eigenen „Öffnen mit“-Ziele nur gezeigt, wenn der Host keine lokal verknüpfte Anwendung erkennt (Dateimanager / VS Code / Cursor / Zed / benutzerdefinierte Editoren, SSH-Remote); nach dem Aktivieren stehen Host-Apps und Plugin-Ziele nebeneinander',
   zipDownload: 'Zippen und herunterladen',
