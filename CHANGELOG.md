@@ -4,6 +4,7 @@
 
 ### Unreleased
 
+- **搜索结果支持只读右键菜单**：文件与目录命中都可右键（键盘 `ContextMenu` / `Shift+F10` 等价），菜单只给只读动作——文件为打开 / 在新 Tab 中打开 / 在侧边打开 / 下载 / 在文件管理器中显示 / 在文件树中显示 / 复制相对或绝对地址，目录为在文件树中显示 / 在文件管理器中显示 / 复制地址；不提供改名、删除、上传、新建文件夹 / 文件或打包，也不改动文件树的选中集（错误显示在搜索面板自己的提示行，不落回隐藏的树）。`.pdf` 命中额外出现「在浏览器中打开」，与文件树入口共用 `open-in-browser` helper：同一 inline `mediaUrl()` URL、`_blank` + `noopener`、桌面壳隐藏。cwd 之外的命中自动隐藏「在文件树中显示」与「复制相对地址」；查询 / 结果变化或页签隐藏时菜单自动关闭。
 - **编辑器「在浏览器中打开」**：内置 html viewer 现在声明 `browserUrl`，编辑器 header 出现「在浏览器中打开」按钮——在真实浏览器新 Tab 打开带 CSP sandbox 的 `/sidebar/html` URL（顶层打开仍处 opaque origin）。点击后侧边栏中该文件的标签页自动关闭；有未保存草稿（html viewer 可编辑）时先确认，取消则不开也不关。markdown / jsonl / code 不显示该按钮；桌面壳（`dsh-app://app/`）隐藏（Electron 拒绝非 http(s) 弹窗，且系统浏览器没有壳进程持有的登录 cookie）。
 - **文件树右键 PDF「在浏览器中打开」**：仅对 `.pdf` 文件出现，在新 Tab 用浏览器原生 PDF 查看器打开 `/sidebar/file` 的 inline URL；不关闭宿主的 PDF 预览 tab，同样在桌面壳隐藏。
 - **`/sidebar/file` 的 inline 响应统一加固**：所有非 `download=1` 响应追加 `sandbox allow-scripts allow-downloads; object-src 'none'`、`nosniff` 与 `no-referrer`，堵住工作区 `.html` / `.svg` 被顶层导航时以 GUI 同源执行脚本的缺口；`?download=1`（attachment）分支不变。外部 viewer 可用的新字段与安全契约见 [接入指南 §5.1 / §6](docs/external-plugin-guide.md)。
